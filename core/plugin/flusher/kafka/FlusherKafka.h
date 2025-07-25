@@ -19,6 +19,7 @@
 #include <librdkafka/rdkafka.h>
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -30,6 +31,7 @@
 #include "monitor/MetricManager.h"
 #include "plugin/flusher/kafka/KafkaConstant.h"
 #include "plugin/flusher/kafka/KafkaUtil.h"
+#include "plugin/flusher/kafka/TopicFormatParser.h"
 
 namespace logtail {
 
@@ -52,6 +54,7 @@ private:
     bool InitKafkaProducer();
     bool SerializeAndSend(PipelineEventGroup&& group);
     void DestroyKafkaResources();
+    rd_kafka_topic_t* GetOrCreateTopicHandle(const std::string& topic);
 
     static void DeliveryReportCallback(rd_kafka_t* rk, const rd_kafka_message_t* rkmessage, void* opaque);
 
@@ -64,6 +67,7 @@ private:
     uint32_t mLingerMs;
 
     std::unique_ptr<EventGroupSerializer> mSerializer;
+    std::unique_ptr<TopicFormatParser> mTopicParser;
 
     CounterPtr mSendCnt;
     CounterPtr mSuccessCnt;
@@ -75,11 +79,13 @@ private:
     CounterPtr mParamsErrorCnt;
     CounterPtr mOtherErrorCnt;
 
-
     rd_kafka_t* mProducer;
     rd_kafka_topic_t* mKafkaTopic;
     rd_kafka_conf_t* mKafkaConf;
     rd_kafka_topic_conf_t* mTopicConf;
+
+    std::map<std::string, rd_kafka_topic_t*> mTopicHandles;
+    std::mutex mTopicHandlesMutex;
 
     std::atomic<bool> mIsRunning;
     std::thread mPollThread;

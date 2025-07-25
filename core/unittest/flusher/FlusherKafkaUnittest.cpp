@@ -189,6 +189,11 @@ public:
     void TestFlushAll();
     void TestConfigValidation();
     void TestSerializeFormat();
+    void TestDynamicTopic_Success();
+    void TestDynamicTopic_FallbackToStatic();
+    void TestDynamicTopic_FromTags();
+    void TestDynamicTopic_InvalidTopicName();
+    void TestDynamicTopic_CacheHit();
 
 protected:
     void SetUp() override {
@@ -535,6 +540,174 @@ void FlusherKafkaUnittest::TestSerializeFormat() {
     APSARA_TEST_TRUE(flusher.Stop(true));
 }
 
+void FlusherKafkaUnittest::TestDynamicTopic_Success() {
+    auto& mock = KafkaProducerMock::GetInstance();
+    mock.Reset();
+
+    FlusherKafka flusher;
+    string configStr = R"({
+        "Type": "flusher_kafka",
+        "Brokers": ["localhost:9092"],
+        "Topic": "test_%{content.application}"
+    })";
+
+    APSARA_TEST_TRUE(InitWithConfig(flusher, configStr));
+    APSARA_TEST_TRUE(flusher.Start());
+
+    PipelineEventGroup group(make_shared<SourceBuffer>());
+    group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+
+    auto logEvent = group.AddLogEvent();
+    logEvent->SetTimestamp(1234567890);
+    logEvent->SetContent(StringView("application"), StringView("user_behavior_log"));
+    logEvent->SetContent(StringView("message"), StringView("test message"));
+
+    APSARA_TEST_TRUE(flusher.Send(std::move(group)));
+
+    APSARA_TEST_EQUAL("test_user_behavior_log", mock.State().topicName);
+    APSARA_TEST_EQUAL(1, mock.State().produceCalled);
+
+    APSARA_TEST_TRUE(flusher.Stop(true));
+}
+
+void FlusherKafkaUnittest::TestDynamicTopic_FallbackToStatic() {
+    auto& mock = KafkaProducerMock::GetInstance();
+    mock.Reset();
+
+    FlusherKafka flusher;
+    string configStr = R"({
+        "Type": "flusher_kafka",
+        "Brokers": ["localhost:9092"],
+        "Topic": "test_%{content.application}"
+    })";
+
+    APSARA_TEST_TRUE(InitWithConfig(flusher, configStr));
+    APSARA_TEST_TRUE(flusher.Start());
+
+    PipelineEventGroup group(make_shared<SourceBuffer>());
+    group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+
+    auto logEvent = group.AddLogEvent();
+    logEvent->SetTimestamp(1234567890);
+    logEvent->SetContent(StringView("message"), StringView("test message"));
+
+
+    APSARA_TEST_TRUE(flusher.Send(std::move(group)));
+
+    APSARA_TEST_EQUAL("test_%{content.application}", mock.State().topicName);
+    APSARA_TEST_EQUAL(1, mock.State().produceCalled);
+
+    APSARA_TEST_TRUE(flusher.Stop(true));
+}
+
+void FlusherKafkaUnittest::TestDynamicTopic_FromTags() {
+    auto& mock = KafkaProducerMock::GetInstance();
+    mock.Reset();
+
+    FlusherKafka flusher;
+    string configStr = R"({
+        "Type": "flusher_kafka",
+        "Brokers": ["localhost:9092"],
+        "Topic": "logs_%{tag.namespace}"
+    })";
+
+    APSARA_TEST_TRUE(InitWithConfig(flusher, configStr));
+    APSARA_TEST_TRUE(flusher.Start());
+
+    PipelineEventGroup group(make_shared<SourceBuffer>());
+    group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+    group.SetTag(StringView("namespace"), StringView("nginx_access_log"));
+
+    auto logEvent = group.AddLogEvent();
+    logEvent->SetTimestamp(1234567890);
+    logEvent->SetContent(StringView("message"), StringView("test message"));
+
+    APSARA_TEST_TRUE(flusher.Send(std::move(group)));
+
+    APSARA_TEST_EQUAL("logs_nginx_access_log", mock.State().topicName);
+    APSARA_TEST_EQUAL(1, mock.State().produceCalled);
+
+    APSARA_TEST_TRUE(flusher.Stop(true));
+}
+
+void FlusherKafkaUnittest::TestDynamicTopic_InvalidTopicName() {
+    auto& mock = KafkaProducerMock::GetInstance();
+    mock.Reset();
+
+    FlusherKafka flusher;
+    string configStr = R"({
+        "Type": "flusher_kafka",
+        "Brokers": ["localhost:9092"],
+        "Topic": "test_%{content.application}"
+    })";
+
+    APSARA_TEST_TRUE(InitWithConfig(flusher, configStr));
+    APSARA_TEST_TRUE(flusher.Start());
+
+    PipelineEventGroup group(make_shared<SourceBuffer>());
+    group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+
+    auto logEvent = group.AddLogEvent();
+    logEvent->SetTimestamp(1234567890);
+    logEvent->SetContent(StringView("application"), StringView("invalid topic name"));
+    logEvent->SetContent(StringView("message"), StringView("test message"));
+
+    APSARA_TEST_TRUE(flusher.Send(std::move(group)));
+
+
+    APSARA_TEST_EQUAL("test_invalid topic name", mock.State().topicName);
+    APSARA_TEST_EQUAL(1, mock.State().produceCalled);
+
+    APSARA_TEST_TRUE(flusher.Stop(true));
+}
+
+void FlusherKafkaUnittest::TestDynamicTopic_CacheHit() {
+    auto& mock = KafkaProducerMock::GetInstance();
+    mock.Reset();
+
+    FlusherKafka flusher;
+    string configStr = R"({
+        "Type": "flusher_kafka",
+        "Brokers": ["localhost:9092"],
+        "Topic": "test_%{content.app}"
+    })";
+
+    APSARA_TEST_TRUE(InitWithConfig(flusher, configStr));
+    APSARA_TEST_TRUE(flusher.Start());
+
+
+    {
+        PipelineEventGroup group(make_shared<SourceBuffer>());
+        group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+
+        auto logEvent = group.AddLogEvent();
+        logEvent->SetTimestamp(1234567890);
+        logEvent->SetContent(StringView("app"), StringView("my_dynamic_topic"));
+        logEvent->SetContent(StringView("message"), StringView("test message 1"));
+
+        APSARA_TEST_TRUE(flusher.Send(std::move(group)));
+    }
+
+
+    {
+        PipelineEventGroup group(make_shared<SourceBuffer>());
+        group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+
+        auto logEvent = group.AddLogEvent();
+        logEvent->SetTimestamp(1234567890);
+        logEvent->SetContent(StringView("app"), StringView("my_dynamic_topic"));
+        logEvent->SetContent(StringView("message"), StringView("test message 2"));
+
+        APSARA_TEST_TRUE(flusher.Send(std::move(group)));
+    }
+
+    APSARA_TEST_EQUAL(2, mock.State().produceCalled);
+
+    APSARA_TEST_EQUAL("test_my_dynamic_topic", mock.State().topicName);
+
+    APSARA_TEST_TRUE(flusher.Stop(true));
+}
+
 UNIT_TEST_CASE(FlusherKafkaUnittest, OnSuccessfulInit)
 UNIT_TEST_CASE(FlusherKafkaUnittest, OnFailedInit)
 UNIT_TEST_CASE(FlusherKafkaUnittest, OnPipelineUpdate)
@@ -543,6 +716,11 @@ UNIT_TEST_CASE(FlusherKafkaUnittest, TestFlush)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestFlushAll)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestConfigValidation)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestSerializeFormat)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_Success)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_FallbackToStatic)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_FromTags)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_InvalidTopicName)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_CacheHit)
 
 } // namespace logtail
 
