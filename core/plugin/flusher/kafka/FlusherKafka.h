@@ -53,8 +53,13 @@ public:
 private:
     bool InitKafkaProducer();
     bool SerializeAndSend(PipelineEventGroup&& group);
+    bool SendBatchOptimized(const std::vector<std::string>& topics,
+                            const std::vector<std::string>& partitionKeys,
+                            std::vector<std::string>& serializedDataList);
+    void HandleKafkaError(rd_kafka_resp_err_t err);
     void DestroyKafkaResources();
     rd_kafka_topic_t* GetOrCreateTopicHandle(const std::string& topic);
+    std::string BuildPartitionKey(const PipelineEventPtr& event) const;
 
     static void DeliveryReportCallback(rd_kafka_t* rk, const rd_kafka_message_t* rkmessage, void* opaque);
 
@@ -65,6 +70,8 @@ private:
     uint32_t mRetries;
     uint32_t mBatchNumMessages;
     uint32_t mLingerMs;
+    std::string mPartitionerType;
+    std::vector<std::string> mHashKeys;
 
     std::unique_ptr<EventGroupSerializer> mSerializer;
     std::unique_ptr<TopicFormatParser> mTopicParser;

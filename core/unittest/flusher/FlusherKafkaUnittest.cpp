@@ -194,6 +194,11 @@ public:
     void TestDynamicTopic_FromTags();
     void TestDynamicTopic_InvalidTopicName();
     void TestDynamicTopic_CacheHit();
+    void TestPartitionKey_Build();
+    void TestPartitionKey_Empty();
+    void TestPartitionKey_Send();
+    void TestPerEventProcessing_MultipleEvents();
+    void TestPerEventProcessing_DynamicTopics();
 
 protected:
     void SetUp() override {
@@ -503,6 +508,94 @@ void FlusherKafkaUnittest::TestConfigValidation() {
         APSARA_TEST_EQUAL("test_client", flusher.mClientID);
         APSARA_TEST_EQUAL("test_client", mock.State().configSettings["client.id"]);
     }
+
+
+    {
+        FlusherKafka flusher;
+        string configStr = R"({
+            "Type": "flusher_kafka",
+            "Brokers": ["localhost:9092"],
+            "Topic": "test_topic",
+            "PartitionerType": "random"
+        })";
+
+        APSARA_TEST_TRUE(InitWithConfig(flusher, configStr));
+        APSARA_TEST_EQUAL("random", flusher.mPartitionerType);
+        APSARA_TEST_EQUAL("random", mock.State().configSettings["partitioner"]);
+    }
+
+
+    {
+        FlusherKafka flusher;
+        string configStr = R"({
+            "Type": "flusher_kafka",
+            "Brokers": ["localhost:9092"],
+            "Topic": "test_topic",
+            "PartitionerType": "roundrobin"
+        })";
+
+        APSARA_TEST_TRUE(InitWithConfig(flusher, configStr));
+        APSARA_TEST_EQUAL("roundrobin", flusher.mPartitionerType);
+    }
+
+
+    {
+        FlusherKafka flusher;
+        string configStr = R"({
+            "Type": "flusher_kafka",
+            "Brokers": ["localhost:9092"],
+            "Topic": "test_topic",
+            "PartitionerType": "hash",
+            "HashKeys": ["content.user_id", "content.session_id"]
+        })";
+
+        APSARA_TEST_TRUE(InitWithConfig(flusher, configStr));
+        APSARA_TEST_EQUAL("hash", flusher.mPartitionerType);
+        APSARA_TEST_EQUAL(2UL, flusher.mHashKeys.size());
+        APSARA_TEST_EQUAL("content.user_id", flusher.mHashKeys[0]);
+        APSARA_TEST_EQUAL("content.session_id", flusher.mHashKeys[1]);
+    }
+
+
+    {
+        FlusherKafka flusher;
+        string configStr = R"({
+            "Type": "flusher_kafka",
+            "Brokers": ["localhost:9092"],
+            "Topic": "test_topic",
+            "PartitionerType": "invalid"
+        })";
+
+        APSARA_TEST_FALSE(InitWithConfig(flusher, configStr));
+    }
+
+
+    {
+        FlusherKafka flusher;
+        string configStr = R"({
+            "Type": "flusher_kafka",
+            "Brokers": ["localhost:9092"],
+            "Topic": "test_topic",
+            "PartitionerType": "hash",
+            "HashKeys": ["invalid_key"]
+        })";
+
+        APSARA_TEST_FALSE(InitWithConfig(flusher, configStr));
+    }
+
+
+    {
+        FlusherKafka flusher;
+        string configStr = R"({
+            "Type": "flusher_kafka",
+            "Brokers": ["localhost:9092"],
+            "Topic": "test_topic",
+            "PartitionerType": "hash",
+            "HashKeys": ["content.user_id", "invalid_prefix"]
+        })";
+
+        APSARA_TEST_FALSE(InitWithConfig(flusher, configStr));
+    }
 }
 
 void FlusherKafkaUnittest::TestSerializeFormat() {
@@ -708,6 +801,205 @@ void FlusherKafkaUnittest::TestDynamicTopic_CacheHit() {
     APSARA_TEST_TRUE(flusher.Stop(true));
 }
 
+void FlusherKafkaUnittest::TestPartitionKey_Build() {
+    FlusherKafka flusher;
+    string configStr = R"({
+        "Type": "flusher_kafka",
+        "Brokers": ["localhost:9092"],
+        "Topic": "test_topic",
+        "PartitionerType": "hash",
+        "HashKeys": ["content.user_id", "content.session_id"]
+    })";
+
+    APSARA_TEST_TRUE(InitWithConfig(flusher, configStr));
+
+    PipelineEventGroup group(make_shared<SourceBuffer>());
+    auto logEvent = group.AddLogEvent();
+    logEvent->SetContent(StringView("user_id"), StringView("user123"));
+    logEvent->SetContent(StringView("session_id"), StringView("session456"));
+
+    PipelineEventPtr eventPtr(logEvent->Copy(), true, nullptr);
+    string partitionKey = flusher.BuildPartitionKey(eventPtr);
+    APSARA_TEST_EQUAL("user123###session456", partitionKey);
+}
+
+void FlusherKafkaUnittest::TestPartitionKey_Empty() {
+    FlusherKafka flusher;
+    string configStr = R"({
+        "Type": "flusher_kafka",
+        "Brokers": ["localhost:9092"],
+        "Topic": "test_topic",
+        "PartitionerType": "random"
+    })";
+
+    APSARA_TEST_TRUE(InitWithConfig(flusher, configStr));
+
+    PipelineEventGroup group(make_shared<SourceBuffer>());
+    auto logEvent = group.AddLogEvent();
+    logEvent->SetContent(StringView("user_id"), StringView("user123"));
+
+    PipelineEventPtr eventPtr(logEvent->Copy(), true, nullptr);
+    string partitionKey = flusher.BuildPartitionKey(eventPtr);
+    APSARA_TEST_EQUAL("", partitionKey);
+
+    FlusherKafka flusher2;
+    string configStr2 = R"({
+        "Type": "flusher_kafka",
+        "Brokers": ["localhost:9092"],
+        "Topic": "test_topic",
+        "PartitionerType": "hash",
+        "HashKeys": []
+    })";
+
+    APSARA_TEST_TRUE(InitWithConfig(flusher2, configStr2));
+    PipelineEventPtr eventPtr2(logEvent->Copy(), true, nullptr);
+    string partitionKey2 = flusher2.BuildPartitionKey(eventPtr2);
+    APSARA_TEST_EQUAL("", partitionKey2);
+
+    FlusherKafka flusher3;
+    string configStr3 = R"({
+        "Type": "flusher_kafka",
+        "Brokers": ["localhost:9092"],
+        "Topic": "test_topic",
+        "PartitionerType": "hash",
+        "HashKeys": ["content.missing_field"]
+    })";
+
+    APSARA_TEST_TRUE(InitWithConfig(flusher3, configStr3));
+    PipelineEventPtr eventPtr3(logEvent->Copy(), true, nullptr);
+    string partitionKey3 = flusher3.BuildPartitionKey(eventPtr3);
+    APSARA_TEST_EQUAL("", partitionKey3);
+}
+
+void FlusherKafkaUnittest::TestPartitionKey_Send() {
+    auto& mock = KafkaProducerMock::GetInstance();
+    mock.Reset();
+
+    FlusherKafka flusher;
+    string configStr = R"({
+        "Type": "flusher_kafka",
+        "Brokers": ["localhost:9092"],
+        "Topic": "test_topic",
+        "PartitionerType": "hash",
+        "HashKeys": ["content.user_id"]
+    })";
+
+    APSARA_TEST_TRUE(InitWithConfig(flusher, configStr));
+    APSARA_TEST_TRUE(flusher.Start());
+
+    PipelineEventGroup group(make_shared<SourceBuffer>());
+    group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+
+    auto logEvent = group.AddLogEvent();
+    logEvent->SetTimestamp(1234567890);
+    logEvent->SetContent(StringView("user_id"), StringView("user123"));
+    logEvent->SetContent(StringView("message"), StringView("test message"));
+
+    APSARA_TEST_TRUE(flusher.Send(std::move(group)));
+
+    APSARA_TEST_EQUAL(1, mock.State().produceCalled);
+    APSARA_TEST_EQUAL(1, mock.State().produceHistory.size());
+    const auto& [key, value] = mock.State().produceHistory[0];
+    APSARA_TEST_EQUAL("user123", key);
+    APSARA_TEST_TRUE(!value.empty());
+
+    APSARA_TEST_TRUE(flusher.Stop(true));
+}
+
+void FlusherKafkaUnittest::TestPerEventProcessing_MultipleEvents() {
+    auto& mock = KafkaProducerMock::GetInstance();
+    mock.Reset();
+
+    FlusherKafka flusher;
+    string configStr = R"({
+        "Type": "flusher_kafka",
+        "Brokers": ["localhost:9092"],
+        "Topic": "test_topic",
+        "PartitionerType": "hash",
+        "HashKeys": ["content.user_id"]
+    })";
+
+    APSARA_TEST_TRUE(InitWithConfig(flusher, configStr));
+    APSARA_TEST_TRUE(flusher.Start());
+
+    PipelineEventGroup group(make_shared<SourceBuffer>());
+    group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+
+    // Add multiple events with different user IDs
+    auto logEvent1 = group.AddLogEvent();
+    logEvent1->SetTimestamp(1234567890);
+    logEvent1->SetContent(StringView("user_id"), StringView("user123"));
+    logEvent1->SetContent(StringView("message"), StringView("test message 1"));
+
+    auto logEvent2 = group.AddLogEvent();
+    logEvent2->SetTimestamp(1234567891);
+    logEvent2->SetContent(StringView("user_id"), StringView("user456"));
+    logEvent2->SetContent(StringView("message"), StringView("test message 2"));
+
+    auto logEvent3 = group.AddLogEvent();
+    logEvent3->SetTimestamp(1234567892);
+    logEvent3->SetContent(StringView("user_id"), StringView("user789"));
+    logEvent3->SetContent(StringView("message"), StringView("test message 3"));
+
+    APSARA_TEST_TRUE(flusher.Send(std::move(group)));
+
+    // Verify that each event is processed individually
+    APSARA_TEST_EQUAL(3, mock.State().produceCalled);
+    APSARA_TEST_EQUAL(3, mock.State().produceHistory.size());
+
+    // Verify each event has its own partition key based on user_id
+    APSARA_TEST_EQUAL("user123", mock.State().produceHistory[0].first);
+    APSARA_TEST_EQUAL("user456", mock.State().produceHistory[1].first);
+    APSARA_TEST_EQUAL("user789", mock.State().produceHistory[2].first);
+
+    APSARA_TEST_TRUE(flusher.Stop(true));
+}
+
+void FlusherKafkaUnittest::TestPerEventProcessing_DynamicTopics() {
+    auto& mock = KafkaProducerMock::GetInstance();
+    mock.Reset();
+
+    FlusherKafka flusher;
+    string configStr = R"({
+        "Type": "flusher_kafka",
+        "Brokers": ["localhost:9092"],
+        "Topic": "logs_%{content.application}",
+        "PartitionerType": "hash",
+        "HashKeys": ["content.user_id"]
+    })";
+
+    APSARA_TEST_TRUE(InitWithConfig(flusher, configStr));
+    APSARA_TEST_TRUE(flusher.Start());
+
+    PipelineEventGroup group(make_shared<SourceBuffer>());
+    group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+
+    // Add events with different applications
+    auto logEvent1 = group.AddLogEvent();
+    logEvent1->SetTimestamp(1234567890);
+    logEvent1->SetContent(StringView("application"), StringView("nginx"));
+    logEvent1->SetContent(StringView("user_id"), StringView("user123"));
+    logEvent1->SetContent(StringView("message"), StringView("nginx log"));
+
+    auto logEvent2 = group.AddLogEvent();
+    logEvent2->SetTimestamp(1234567891);
+    logEvent2->SetContent(StringView("application"), StringView("app"));
+    logEvent2->SetContent(StringView("user_id"), StringView("user456"));
+    logEvent2->SetContent(StringView("message"), StringView("app log"));
+
+    APSARA_TEST_TRUE(flusher.Send(std::move(group)));
+
+    // Verify each event is processed with its own topic and partition key
+    APSARA_TEST_EQUAL(2, mock.State().produceCalled);
+    APSARA_TEST_EQUAL(2, mock.State().produceHistory.size());
+
+    // Verify partition keys are based on individual user_ids
+    APSARA_TEST_EQUAL("user123", mock.State().produceHistory[0].first);
+    APSARA_TEST_EQUAL("user456", mock.State().produceHistory[1].first);
+
+    APSARA_TEST_TRUE(flusher.Stop(true));
+}
+
 UNIT_TEST_CASE(FlusherKafkaUnittest, OnSuccessfulInit)
 UNIT_TEST_CASE(FlusherKafkaUnittest, OnFailedInit)
 UNIT_TEST_CASE(FlusherKafkaUnittest, OnPipelineUpdate)
@@ -721,6 +1013,11 @@ UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_FallbackToStatic)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_FromTags)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_InvalidTopicName)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_CacheHit)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_Build)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_Empty)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_Send)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPerEventProcessing_MultipleEvents)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPerEventProcessing_DynamicTopics)
 
 } // namespace logtail
 
