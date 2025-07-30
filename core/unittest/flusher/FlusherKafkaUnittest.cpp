@@ -43,7 +43,15 @@ public:
     void TestInitMissingTopic();
     void TestSendSuccess();
     void TestStartStop();
-    void TestDynamicTopic_AllScenarios();
+    void TestDynamicTopic_Success();
+    void TestDynamicTopic_FallbackToStatic();
+    void TestDynamicTopic_FromTags();
+    void TestPartitionKey_Random();
+    void TestPartitionKey_Hash();
+    void TestPartitionKey_InvalidPartitionerType();
+    void TestPartitionKey_InvalidHashKey();
+    void TestPartitionKey_PartialInvalidHashKey();
+
 
 protected:
     static void SetUpTestSuite();
@@ -216,65 +224,143 @@ void FlusherKafkaUnittest::TestStartStop() {
     APSARA_TEST_FALSE(mFlusher->mIsRunning.load());
 }
 
-void FlusherKafkaUnittest::TestDynamicTopic_AllScenarios() {
-    struct TestCase {
-        std::string name;
-        std::string topicTemplate;
-        std::string expectedTopic;
-        std::function<void(PipelineEventGroup&)> setupGroup;
-    };
+void FlusherKafkaUnittest::TestDynamicTopic_Success() {
+    FlusherKafka tempFlusher;
+    CollectionPipelineContext tempContext;
+    tempContext.SetConfigName("test_config_Success");
+    tempFlusher.SetContext(tempContext);
+    tempFlusher.CreateMetricsRecordRef(FlusherKafka::sName, "temp_Success");
 
-    std::vector<TestCase> testCases
-        = {{"Success",
-            "test_%{content.application}",
-            "test_user_behavior_log",
-            [](PipelineEventGroup& group) {
-                group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
-                auto* event = group.AddLogEvent();
-                event->SetTimestamp(1234567890);
-                event->SetContent(StringView("application"), StringView("user_behavior_log"));
-                event->SetContent(StringView("message"), StringView("test message"));
-            }},
-           {"FallbackToStatic",
-            "test_%{content.application}",
-            "test_%{content.application}",
-            [](PipelineEventGroup& group) {
-                group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
-                auto* event = group.AddLogEvent();
-                event->SetTimestamp(1234567890);
-                event->SetContent(StringView("message"), StringView("test message"));
-            }},
-           {"FromTags", "logs_%{tag.namespace}", "logs_nginx_access_log", [](PipelineEventGroup& group) {
-                group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
-                group.SetTag(StringView("namespace"), StringView("nginx_access_log"));
-                auto* event = group.AddLogEvent();
-                event->SetTimestamp(1234567890);
-                event->SetContent(StringView("message"), StringView("test message"));
-            }}};
+    Json::Value optionalGoPipeline;
+    Json::Value config = GetConfigWithTopic("test_%{content.application}");
+
+    APSARA_TEST_TRUE(tempFlusher.Init(config, optionalGoPipeline));
+
+    PipelineEventGroup group = CreateTestGroup();
+
+    group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+    auto* event = group.AddLogEvent();
+    event->SetTimestamp(1234567890);
+    event->SetContent(StringView("application"), StringView("user_behavior_log"));
+    event->SetContent(StringView("message"), StringView("test message"));
+
+    APSARA_TEST_TRUE(tempFlusher.Send(std::move(group)));
+
+    rd_kafka_flush(tempFlusher.mProducer, 1000);
+    rd_kafka_poll(tempFlusher.mProducer, 100);
 
 
-    for (const auto& testCase : testCases) {
-        FlusherKafka tempFlusher;
-        CollectionPipelineContext tempContext;
-        tempContext.SetConfigName("test_config_" + testCase.name);
-        tempFlusher.SetContext(tempContext);
-        tempFlusher.CreateMetricsRecordRef(FlusherKafka::sName, "temp_" + testCase.name);
+    APSARA_TEST_TRUE(tempFlusher.mTopicSet.find("test_user_behavior_log") != tempFlusher.mTopicSet.end());
 
-        Json::Value optionalGoPipeline;
-        Json::Value config = GetConfigWithTopic(testCase.topicTemplate);
+    APSARA_TEST_EQUAL(1, tempFlusher.mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, tempFlusher.mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, tempFlusher.mSuccessCnt->GetValue());
 
-        APSARA_TEST_TRUE(tempFlusher.Init(config, optionalGoPipeline));
-        APSARA_TEST_TRUE(tempFlusher.Start());
+    tempFlusher.Stop(true);
+    tempFlusher.CommitMetricsRecordRef();
+}
 
+void FlusherKafkaUnittest::TestDynamicTopic_FallbackToStatic() {
+    FlusherKafka tempFlusher;
+    CollectionPipelineContext tempContext;
+    tempContext.SetConfigName("test_config_FallbackToStatic");
+    tempFlusher.SetContext(tempContext);
+    tempFlusher.CreateMetricsRecordRef(FlusherKafka::sName, "temp_FallbackToStatic");
+
+    Json::Value optionalGoPipeline;
+
+    Json::Value config = GetConfigWithTopic("test_%{content.application}");
+
+    APSARA_TEST_TRUE(tempFlusher.Init(config, optionalGoPipeline));
+
+    PipelineEventGroup group = CreateTestGroup();
+
+    group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+    auto* event = group.AddLogEvent();
+    event->SetTimestamp(1234567890);
+    event->SetContent(StringView("message"), StringView("test message"));
+
+
+    APSARA_TEST_TRUE(tempFlusher.Send(std::move(group)));
+
+    rd_kafka_flush(tempFlusher.mProducer, 1000);
+    rd_kafka_poll(tempFlusher.mProducer, 100);
+
+
+    APSARA_TEST_TRUE(tempFlusher.mTopicSet.find("test_%{content.application}") != tempFlusher.mTopicSet.end());
+
+    APSARA_TEST_EQUAL(1, tempFlusher.mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, tempFlusher.mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, tempFlusher.mSuccessCnt->GetValue());
+
+    tempFlusher.Stop(true);
+    tempFlusher.CommitMetricsRecordRef();
+}
+
+void FlusherKafkaUnittest::TestDynamicTopic_FromTags() {
+    FlusherKafka tempFlusher;
+    CollectionPipelineContext tempContext;
+    tempContext.SetConfigName("test_config_FromTags");
+    tempFlusher.SetContext(tempContext);
+    tempFlusher.CreateMetricsRecordRef(FlusherKafka::sName, "temp_FromTags");
+
+    Json::Value optionalGoPipeline;
+
+    Json::Value config = GetConfigWithTopic("logs_%{tag.namespace}");
+
+    APSARA_TEST_TRUE(tempFlusher.Init(config, optionalGoPipeline));
+
+    PipelineEventGroup group = CreateTestGroup();
+
+    group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+    group.SetTag(StringView("namespace"), StringView("nginx_access_log"));
+    auto* event = group.AddLogEvent();
+    event->SetTimestamp(1234567890);
+    event->SetContent(StringView("message"), StringView("test message"));
+
+    APSARA_TEST_TRUE(tempFlusher.Send(std::move(group)));
+
+    rd_kafka_flush(tempFlusher.mProducer, 1000);
+    rd_kafka_poll(tempFlusher.mProducer, 100);
+
+
+    APSARA_TEST_TRUE(tempFlusher.mTopicSet.find("logs_nginx_access_log") != tempFlusher.mTopicSet.end());
+
+    APSARA_TEST_EQUAL(1, tempFlusher.mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, tempFlusher.mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, tempFlusher.mSuccessCnt->GetValue());
+
+    tempFlusher.Stop(true);
+    tempFlusher.CommitMetricsRecordRef();
+}
+
+void FlusherKafkaUnittest::TestPartitionKey_Random() {
+    FlusherKafka tempFlusher;
+    CollectionPipelineContext tempContext;
+    tempContext.SetConfigName("test_config_Random");
+    tempFlusher.SetContext(tempContext);
+    tempFlusher.CreateMetricsRecordRef(FlusherKafka::sName, "temp_Random");
+
+    Json::Value optionalGoPipeline;
+    Json::Value config = GetConfigWithTopic("test_topic");
+    config["PartitionerType"] = "random";
+
+    bool initResult = tempFlusher.Init(config, optionalGoPipeline);
+    APSARA_TEST_TRUE(initResult);
+
+    if (initResult) {
         PipelineEventGroup group = CreateTestGroup();
-        testCase.setupGroup(group);
+        group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+        auto* event = group.AddLogEvent();
+        event->SetTimestamp(1234567890);
+        event->SetContent(StringView("message"), StringView("test message for random"));
 
         APSARA_TEST_TRUE(tempFlusher.Send(std::move(group)));
 
         rd_kafka_flush(tempFlusher.mProducer, 1000);
         rd_kafka_poll(tempFlusher.mProducer, 100);
 
-        APSARA_TEST_TRUE(tempFlusher.mTopicSet.find(testCase.expectedTopic) != tempFlusher.mTopicSet.end());
+
         APSARA_TEST_EQUAL(1, tempFlusher.mSendCnt->GetValue());
         APSARA_TEST_EQUAL(1, tempFlusher.mSendDoneCnt->GetValue());
         APSARA_TEST_EQUAL(1, tempFlusher.mSuccessCnt->GetValue());
@@ -284,13 +370,137 @@ void FlusherKafkaUnittest::TestDynamicTopic_AllScenarios() {
     }
 }
 
+void FlusherKafkaUnittest::TestPartitionKey_Hash() {
+    FlusherKafka tempFlusher;
+    CollectionPipelineContext tempContext;
+    tempContext.SetConfigName("test_config_Hash");
+    tempFlusher.SetContext(tempContext);
+    tempFlusher.CreateMetricsRecordRef(FlusherKafka::sName, "temp_Hash");
+
+    Json::Value optionalGoPipeline;
+    Json::Value config = GetConfigWithTopic("test_topic");
+    config["PartitionerType"] = "hash";
+    config["HashKeys"] = Json::Value(Json::arrayValue);
+    config["HashKeys"].append("content.user_id");
+    config["HashKeys"].append("content.session_id");
+
+    bool initResult = tempFlusher.Init(config, optionalGoPipeline);
+    APSARA_TEST_TRUE(initResult);
+
+    if (initResult) {
+        PipelineEventGroup group = CreateTestGroup();
+        group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+        auto* event = group.AddLogEvent();
+        event->SetTimestamp(1234567890);
+        event->SetContent(StringView("user_id"), StringView("user123"));
+        event->SetContent(StringView("session_id"), StringView("session456"));
+
+        APSARA_TEST_TRUE(tempFlusher.Send(std::move(group)));
+
+        rd_kafka_flush(tempFlusher.mProducer, 1000);
+        rd_kafka_poll(tempFlusher.mProducer, 100);
+
+
+        APSARA_TEST_EQUAL(1, tempFlusher.mSendCnt->GetValue());
+        APSARA_TEST_EQUAL(1, tempFlusher.mSendDoneCnt->GetValue());
+        APSARA_TEST_EQUAL(1, tempFlusher.mSuccessCnt->GetValue());
+
+        tempFlusher.Stop(true);
+        tempFlusher.CommitMetricsRecordRef();
+    }
+}
+
+void FlusherKafkaUnittest::TestPartitionKey_InvalidPartitionerType() {
+    FlusherKafka tempFlusher;
+    CollectionPipelineContext tempContext;
+    tempContext.SetConfigName("test_config_InvalidPartitionerType");
+    tempFlusher.SetContext(tempContext);
+    tempFlusher.CreateMetricsRecordRef(FlusherKafka::sName, "temp_InvalidPartitionerType");
+
+    Json::Value optionalGoPipeline;
+    Json::Value config = GetConfigWithTopic("test_topic");
+    config["PartitionerType"] = "invalid_type";
+
+    bool initResult = tempFlusher.Init(config, optionalGoPipeline);
+    APSARA_TEST_FALSE(initResult);
+
+
+    tempFlusher.CommitMetricsRecordRef();
+}
+
+void FlusherKafkaUnittest::TestPartitionKey_InvalidHashKey() {
+    FlusherKafka tempFlusher;
+    CollectionPipelineContext tempContext;
+    tempContext.SetConfigName("test_config_InvalidHashKey");
+    tempFlusher.SetContext(tempContext);
+    tempFlusher.CreateMetricsRecordRef(FlusherKafka::sName, "temp_InvalidHashKey");
+
+    Json::Value optionalGoPipeline;
+    Json::Value config = GetConfigWithTopic("test_topic");
+    config["PartitionerType"] = "hash";
+    config["HashKeys"] = Json::Value(Json::arrayValue);
+    config["HashKeys"].append("content.invalid_key");
+
+    bool initResult = tempFlusher.Init(config, optionalGoPipeline);
+    APSARA_TEST_TRUE(initResult);
+
+    if (initResult) {
+        PipelineEventGroup group = CreateTestGroup();
+        group.SetMetadata(EventGroupMetaKey::SOURCE_ID, StringView("test-source"));
+        auto* event = group.AddLogEvent();
+        event->SetTimestamp(1234567890);
+        event->SetContent(StringView("message"), StringView("test message for invalid hash key"));
+
+
+        APSARA_TEST_TRUE(tempFlusher.Send(std::move(group)));
+
+        rd_kafka_flush(tempFlusher.mProducer, 1000);
+        rd_kafka_poll(tempFlusher.mProducer, 100);
+
+
+        APSARA_TEST_EQUAL(1, tempFlusher.mSendCnt->GetValue());
+        APSARA_TEST_EQUAL(1, tempFlusher.mSendDoneCnt->GetValue());
+        APSARA_TEST_EQUAL(1, tempFlusher.mSuccessCnt->GetValue());
+
+        tempFlusher.Stop(true);
+        tempFlusher.CommitMetricsRecordRef();
+    }
+}
+
+void FlusherKafkaUnittest::TestPartitionKey_PartialInvalidHashKey() {
+    FlusherKafka tempFlusher;
+    CollectionPipelineContext tempContext;
+    tempContext.SetConfigName("test_config_PartialInvalidHashKey");
+    tempFlusher.SetContext(tempContext);
+    tempFlusher.CreateMetricsRecordRef(FlusherKafka::sName, "temp_PartialInvalidHashKey");
+
+    Json::Value optionalGoPipeline;
+    Json::Value config = GetConfigWithTopic("test_topic");
+    config["PartitionerType"] = "hash";
+    config["HashKeys"] = Json::Value(Json::arrayValue);
+    config["HashKeys"].append("content.user_id");
+    config["HashKeys"].append("invalid_prefix");
+
+    bool initResult = tempFlusher.Init(config, optionalGoPipeline);
+    APSARA_TEST_FALSE(initResult);
+
+    tempFlusher.CommitMetricsRecordRef();
+}
+
 
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitSuccess)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitMissingBrokers)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitMissingTopic)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestSendSuccess)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestStartStop)
-UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_AllScenarios)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_Success)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_FallbackToStatic)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_FromTags)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_Random)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_Hash)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_InvalidPartitionerType)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_InvalidHashKey)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_PartialInvalidHashKey)
 
 } // namespace logtail
 

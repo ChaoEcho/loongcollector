@@ -51,13 +51,17 @@ public:
     bool FlushAll() override;
 
 private:
-    bool InitKafkaProducer();
     bool SerializeAndSend(PipelineEventGroup&& group);
-    void DestroyKafkaResources();
-    void HandleProduceError(rd_kafka_resp_err_t err);
-    void HandleDeliveryError(rd_kafka_resp_err_t err);
-    bool SetKafkaConfig(rd_kafka_conf_t* conf, const char* key, const std::string& value);
+    bool SendBatchOptimized(const std::vector<std::string>& topics,
+                            const std::vector<std::string>& partitionKeys,
+                            std::vector<std::string>& serializedDataList);
+    std::string BuildPartitionKey(const PipelineEventPtr& event) const;
 
+    bool InitKafkaProducer();
+    bool SetKafkaConfig(rd_kafka_conf_t* conf, const char* key, const std::string& value);
+    void DestroyKafkaResources();
+
+    void HandleKafkaError(rd_kafka_resp_err_t err);
     static void DeliveryReportCallback(rd_kafka_t* rk, const rd_kafka_message_t* rkmessage, void* opaque);
 
     std::vector<std::string> mBrokers;
@@ -67,6 +71,8 @@ private:
     uint32_t mRetries;
     uint32_t mBatchNumMessages;
     uint32_t mLingerMs;
+    PartitionerType mPartitionerType;
+    std::vector<std::string> mHashKeys;
 
     std::map<std::string, std::string> mKafkaOptions;
     std::unique_ptr<EventGroupSerializer> mSerializer;
