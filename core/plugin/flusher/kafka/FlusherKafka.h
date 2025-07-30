@@ -31,6 +31,7 @@
 #include "monitor/MetricManager.h"
 #include "plugin/flusher/kafka/KafkaConstant.h"
 #include "plugin/flusher/kafka/KafkaUtil.h"
+#include "plugin/flusher/kafka/TopicFormatParser.h"
 
 namespace logtail {
 
@@ -66,8 +67,8 @@ private:
     uint32_t mRetries;
     uint32_t mBatchNumMessages;
     uint32_t mLingerMs;
-    std::map<std::string, std::string> mKafkaOptions;
 
+    std::map<std::string, std::string> mKafkaOptions;
     std::unique_ptr<EventGroupSerializer> mSerializer;
 
     CounterPtr mSendCnt;
@@ -82,6 +83,8 @@ private:
 
     rd_kafka_t* mProducer;
     rd_kafka_conf_t* mKafkaConf;
+    std::unique_ptr<TopicFormatParser> mTopicParser;
+    std::set<std::string> mTopicSet;
 
     std::atomic<bool> mIsRunning;
     std::thread mPollThread;
