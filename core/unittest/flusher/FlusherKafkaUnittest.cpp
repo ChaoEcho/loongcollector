@@ -58,6 +58,9 @@ public:
     void TestSendParamsError();
     void TestSendQueueFullError();
     void TestFlushFailure();
+    void TestDynamicTopic_Success();
+    void TestDynamicTopic_FallbackToStatic();
+    void TestDynamicTopic_FromTags();
 
 protected:
     void SetUp();
@@ -297,6 +300,60 @@ void FlusherKafkaUnittest::TestFlushFailure() {
     APSARA_TEST_TRUE(mMockProducer->IsFlushCalled());
 }
 
+void FlusherKafkaUnittest::TestDynamicTopic_Success() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig("test_%{content.application}");
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    auto sourceBuffer = std::make_shared<SourceBuffer>();
+    PipelineEventGroup group(sourceBuffer);
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("application"), StringView("user_behavior_log"));
+
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+    APSARA_TEST_TRUE(mFlusher->mTopicSet.find("test_user_behavior_log") != mFlusher->mTopicSet.end());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
+
+void FlusherKafkaUnittest::TestDynamicTopic_FallbackToStatic() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig("test_%{content.application}");
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    PipelineEventGroup group(std::make_shared<SourceBuffer>());
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("key"), StringView("value"));
+
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+    APSARA_TEST_TRUE(mFlusher->mTopicSet.find("test_%{content.application}") != mFlusher->mTopicSet.end());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
+
+void FlusherKafkaUnittest::TestDynamicTopic_FromTags() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig("logs_%{tag.namespace}");
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    PipelineEventGroup group(std::make_shared<SourceBuffer>());
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("key"), StringView("value"));
+    group.SetTag(StringView("namespace"), StringView("nginx_access_log"));
+
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+    APSARA_TEST_TRUE(mFlusher->mTopicSet.find("logs_nginx_access_log") != mFlusher->mTopicSet.end());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
+
+
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitSuccess)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitMissingBrokers)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitMissingTopic)
@@ -311,6 +368,9 @@ UNIT_TEST_CASE(FlusherKafkaUnittest, TestSendServerError)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestSendParamsError)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestSendQueueFullError)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestFlushFailure)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_Success)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_FallbackToStatic)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_FromTags)
 
 } // namespace logtail
 
