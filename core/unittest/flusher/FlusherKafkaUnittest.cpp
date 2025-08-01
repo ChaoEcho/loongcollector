@@ -61,6 +61,11 @@ public:
     void TestDynamicTopic_Success();
     void TestDynamicTopic_FallbackToStatic();
     void TestDynamicTopic_FromTags();
+    void TestPartitionKey_Random();
+    void TestPartitionKey_Hash();
+    void TestPartitionKey_InvalidPartitionerType();
+    void TestPartitionKey_InvalidHashKey();
+    void TestPartitionKey_PartialInvalidHashKey();
 
 protected:
     void SetUp();
@@ -353,6 +358,92 @@ void FlusherKafkaUnittest::TestDynamicTopic_FromTags() {
     APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
 }
 
+void FlusherKafkaUnittest::TestPartitionKey_Random() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["PartitionerType"] = "random";
+
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    auto sourceBuffer = std::make_shared<SourceBuffer>();
+    PipelineEventGroup group(sourceBuffer);
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("key"), StringView("value"));
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
+
+void FlusherKafkaUnittest::TestPartitionKey_Hash() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["PartitionerType"] = "hash";
+    config["HashKeys"] = Json::Value(Json::arrayValue);
+    config["HashKeys"].append("content.user_id");
+    config["HashKeys"].append("content.session_id");
+
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    auto sourceBuffer = std::make_shared<SourceBuffer>();
+    PipelineEventGroup group(sourceBuffer);
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("user_id"), StringView("user123"));
+    event->SetContent(StringView("session_id"), StringView("session456"));
+    event->SetContent(StringView("key"), StringView("value"));
+
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
+
+void FlusherKafkaUnittest::TestPartitionKey_InvalidPartitionerType() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["PartitionerType"] = "invalid_type";
+
+    APSARA_TEST_FALSE(mFlusher->Init(config, optionalGoPipeline));
+}
+
+void FlusherKafkaUnittest::TestPartitionKey_InvalidHashKey() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["PartitionerType"] = "hash";
+    config["HashKeys"] = Json::Value(Json::arrayValue);
+    config["HashKeys"].append("content.invalid_key");
+
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    auto sourceBuffer = std::make_shared<SourceBuffer>();
+    PipelineEventGroup group(sourceBuffer);
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("user_id"), StringView("user123"));
+    event->SetContent(StringView("session_id"), StringView("session456"));
+    event->SetContent(StringView("key"), StringView("value"));
+
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
+
+void FlusherKafkaUnittest::TestPartitionKey_PartialInvalidHashKey() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["PartitionerType"] = "hash";
+    config["HashKeys"] = Json::Value(Json::arrayValue);
+    config["HashKeys"].append("content.user_id");
+    config["HashKeys"].append("invalid_prefix");
+
+    APSARA_TEST_FALSE(mFlusher->Init(config, optionalGoPipeline));
+}
+
 
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitSuccess)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitMissingBrokers)
@@ -371,6 +462,11 @@ UNIT_TEST_CASE(FlusherKafkaUnittest, TestFlushFailure)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_Success)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_FallbackToStatic)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_FromTags)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_Random)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_Hash)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_InvalidPartitionerType)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_InvalidHashKey)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_PartialInvalidHashKey)
 
 } // namespace logtail
 

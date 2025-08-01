@@ -33,6 +33,7 @@ extern const std::string KAFKA_CONFIG_QUEUE_BUFFERING_MAX_MESSAGES;
 extern const std::string KAFKA_CONFIG_MESSAGE_SEND_MAX_RETRIES;
 extern const std::string KAFKA_CONFIG_RETRY_BACKOFF_MS;
 extern const std::string KAFKA_CONFIG_REQUEST_TIMEOUT_MS;
+extern const std::string KAFKA_CONFIG_PARTITIONER;
 
 extern const std::string KAFKA_ERROR_UNKNOWN;
 extern const std::string KAFKA_ERROR_BROKER_NOT_AVAILABLE;
@@ -73,5 +74,11 @@ extern const std::string METRIC_KAFKA_BYTES_SENT;
 extern const std::string METRIC_KAFKA_RETRIES;
 extern const std::string METRIC_KAFKA_QUEUE_SIZE;
 extern const std::string METRIC_KAFKA_BATCH_SIZE;
+
+extern const std::string PARTITIONER_RANDOM;
+extern const std::string PARTITIONER_HASH;
+extern const std::string PARTITIONER_PERFIX;
+extern const std::string LIBRDKAFKA_PARTITIONER_RANDOM;
+extern const std::string LIBRDKAFKA_PARTITIONER_MURMUR2_RANDOM;
 
 } // namespace logtail

@@ -33,6 +33,7 @@ const std::string KAFKA_CONFIG_QUEUE_BUFFERING_MAX_MESSAGES = "queue.buffering.m
 const std::string KAFKA_CONFIG_MESSAGE_SEND_MAX_RETRIES = "message.send.max.retries";
 const std::string KAFKA_CONFIG_RETRY_BACKOFF_MS = "retry.backoff.ms";
 const std::string KAFKA_CONFIG_REQUEST_TIMEOUT_MS = "request.timeout.ms";
+const std::string KAFKA_CONFIG_PARTITIONER = "partitioner";
 
 
 const std::string KAFKA_ERROR_UNKNOWN = "UNKNOWN";
@@ -74,5 +75,12 @@ const std::string METRIC_KAFKA_BYTES_SENT = "kafka_bytes_sent";
 const std::string METRIC_KAFKA_RETRIES = "kafka_retries";
 const std::string METRIC_KAFKA_QUEUE_SIZE = "kafka_queue_size";
 const std::string METRIC_KAFKA_BATCH_SIZE = "kafka_batch_size";
+
+
+const std::string PARTITIONER_RANDOM = "random";
+const std::string PARTITIONER_HASH = "hash";
+const std::string PARTITIONER_PERFIX = "content.";
+const std::string LIBRDKAFKA_PARTITIONER_RANDOM = "random";
+const std::string LIBRDKAFKA_PARTITIONER_MURMUR2_RANDOM = "murmur2_random";
 
 } // namespace logtail

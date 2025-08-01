@@ -113,7 +113,8 @@ public:
             || !SetConfig(KAFKA_CONFIG_RETRIES, std::to_string(mConfig.Retries))
             || !SetConfig(KAFKA_CONFIG_REQUEST_TIMEOUT_MS, std::to_string(mConfig.TimeoutMs))
             || !SetConfig(KAFKA_CONFIG_BATCH_NUM_MESSAGES, std::to_string(mConfig.BatchNumMessages))
-            || !SetConfig(KAFKA_CONFIG_LINGER_MS, std::to_string(mConfig.LingerMs))) {
+            || !SetConfig(KAFKA_CONFIG_LINGER_MS, std::to_string(mConfig.LingerMs))
+            || !SetConfig(KAFKA_CONFIG_PARTITIONER, mConfig.Partitioner)) {
             return false;
         }
 
@@ -146,7 +147,7 @@ public:
         return true;
     }
 
-    void ProduceAsync(const std::string& topic, std::string&& value, KafkaProducer::Callback callback) {
+    void ProduceAsync(const std::string& topic, const std::string& key, std::string&& value, Callback callback) {
         if (!mProducer) {
             KafkaProducer::ErrorInfo errorInfo;
             errorInfo.type = KafkaProducer::ErrorType::OTHER_ERROR;
@@ -161,6 +162,7 @@ public:
         rd_kafka_resp_err_t err = rd_kafka_producev(mProducer,
                                                     RD_KAFKA_V_TOPIC(topic.c_str()),
                                                     RD_KAFKA_V_PARTITION(RD_KAFKA_PARTITION_UA),
+                                                    RD_KAFKA_V_KEY(key.data(), key.size()),
                                                     RD_KAFKA_V_VALUE(value.data(), value.size()),
                                                     RD_KAFKA_V_OPAQUE(context),
                                                     RD_KAFKA_V_END);
@@ -229,8 +231,11 @@ bool KafkaProducer::Init(const KafkaConfig& config) {
     return mImpl->Init(config);
 }
 
-void KafkaProducer::ProduceAsync(const std::string& topic, std::string&& value, Callback callback) {
-    mImpl->ProduceAsync(topic, std::move(value), std::move(callback));
+void KafkaProducer::ProduceAsync(const std::string& topic,
+                                 const std::string& key,
+                                 std::string&& value,
+                                 Callback callback) {
+    mImpl->ProduceAsync(topic, key, std::move(value), std::move(callback));
 }
 
 bool KafkaProducer::Flush(int timeoutMs) {

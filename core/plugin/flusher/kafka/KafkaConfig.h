@@ -30,6 +30,9 @@ struct KafkaConfig {
     std::vector<std::string> Brokers;
     std::string Topic;
     std::string ClientID;
+    std::string PartitionerType;
+    std::vector<std::string> HashKeys;
+    std::string Partitioner;
     uint32_t TimeoutMs = 3000;
     uint32_t Retries = 3;
     uint32_t BatchNumMessages = 1000;
@@ -46,6 +49,8 @@ struct KafkaConfig {
         }
 
         GetOptionalStringParam(config, "ClientID", ClientID, errorMsg);
+        GetOptionalStringParam(config, "PartitionerType", PartitionerType, errorMsg);
+        GetOptionalListParam<std::string>(config, "HashKeys", HashKeys, errorMsg);
         GetOptionalUIntParam(config, "TimeoutMs", TimeoutMs, errorMsg);
         GetOptionalUIntParam(config, "Retries", Retries, errorMsg);
         GetOptionalUIntParam(config, "BatchNumMessages", BatchNumMessages, errorMsg);
