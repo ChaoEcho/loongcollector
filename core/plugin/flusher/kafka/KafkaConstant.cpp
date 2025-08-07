@@ -83,4 +83,27 @@ const std::string PARTITIONER_PERFIX = "content.";
 const std::string LIBRDKAFKA_PARTITIONER_RANDOM = "random";
 const std::string LIBRDKAFKA_PARTITIONER_MURMUR2_RANDOM = "murmur2_random";
 
+const std::string KAFKA_CONFIG_SECURITY_PROTOCOL = "security.protocol";
+const std::string KAFKA_CONFIG_SASL_MECHANISM = "sasl.mechanisms";
+const std::string KAFKA_CONFIG_SASL_USERNAME = "sasl.username";
+const std::string KAFKA_CONFIG_SASL_PASSWORD = "sasl.password";
+const std::string KAFKA_CONFIG_SSL_CA_LOCATION = "ssl.ca.location";
+const std::string KAFKA_CONFIG_SSL_CERTIFICATE_LOCATION = "ssl.certificate.location";
+const std::string KAFKA_CONFIG_SSL_KEY_LOCATION = "ssl.key.location";
+const std::string KAFKA_CONFIG_SSL_KEY_PASSWORD = "ssl.key.password";
+const std::string KAFKA_CONFIG_ENABLE_SSL_CERT_VERIFICATION = "enable.ssl.certificate.verification";
+const std::string KAFKA_CONFIG_SASL_KERBEROS_SERVICE_NAME = "sasl.kerberos.service.name";
+const std::string KAFKA_CONFIG_SASL_KERBEROS_KEYTAB = "sasl.kerberos.keytab";
+const std::string KAFKA_CONFIG_SASL_KERBEROS_PRINCIPAL = "sasl.kerberos.principal";
+
+const std::string KAFKA_SECURITY_PROTOCOL_PLAINTEXT = "plaintext";
+const std::string KAFKA_SECURITY_PROTOCOL_SSL = "ssl";
+const std::string KAFKA_SECURITY_PROTOCOL_SASL_PLAINTEXT = "sasl_plaintext";
+const std::string KAFKA_SECURITY_PROTOCOL_SASL_SSL = "sasl_ssl";
+
+const std::string KAFKA_SASL_MECHANISM_PLAIN = "PLAIN";
+const std::string KAFKA_SASL_MECHANISM_SCRAM_SHA_256 = "SCRAM-SHA-256";
+const std::string KAFKA_SASL_MECHANISM_SCRAM_SHA_512 = "SCRAM-SHA-512";
+const std::string KAFKA_SASL_MECHANISM_GSSAPI = "GSSAPI";
+
 } // namespace logtail

@@ -27,6 +27,7 @@
 #include "collection_pipeline/plugin/interface/Flusher.h"
 #include "collection_pipeline/serializer/JsonSerializer.h"
 #include "monitor/MetricManager.h"
+#include "plugin/flusher/kafka/KafkaAuthenticator.h"
 #include "plugin/flusher/kafka/KafkaConfig.h"
 #include "plugin/flusher/kafka/KafkaProducer.h"
 #include "plugin/flusher/kafka/TopicFormatParser.h"
@@ -63,6 +64,8 @@ private:
 
     std::unique_ptr<TopicFormatParser> mTopicParser;
     std::set<std::string> mTopicSet;
+
+    std::unique_ptr<KafkaAuthenticator> mAuthenticator;
 
     CounterPtr mSendCnt;
     CounterPtr mSuccessCnt;

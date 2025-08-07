@@ -89,8 +89,12 @@ bool FlusherKafka::Init(const Json::Value& config, Json::Value& optionalGoPipeli
                            mContext->GetRegion());
     }
 
-    if (!mProducer->Init(mKafkaConfig)) {
-        return false;
+    mAuthenticator = make_unique<KafkaAuthenticator>();
+    if (config.isMember("Authentication")) {
+        if (!mAuthenticator->Init(config["Authentication"])) {
+            LOG_ERROR(mContext->GetLogger(), ("invalid authentication configuration", ""));
+            return false;
+        }
     }
 
     mSerializer = make_unique<JsonEventGroupSerializer>(this);
@@ -99,6 +103,10 @@ bool FlusherKafka::Init(const Json::Value& config, Json::Value& optionalGoPipeli
 
     if (!mTopicParser->Init(mKafkaConfig.Topic)) {
         LOG_ERROR(mContext->GetLogger(), ("invalid topic format string", mKafkaConfig.Topic));
+        return false;
+    }
+
+    if (!mProducer->Init(mKafkaConfig, mAuthenticator.get())) {
         return false;
     }
 

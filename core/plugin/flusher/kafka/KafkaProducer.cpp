@@ -24,6 +24,7 @@
 
 #include "common/StringTools.h"
 #include "logger/Logger.h"
+#include "plugin/flusher/kafka/KafkaAuthenticator.h"
 #include "plugin/flusher/kafka/KafkaConfig.h"
 #include "plugin/flusher/kafka/KafkaUtil.h"
 
@@ -89,13 +90,12 @@ void DeliveryReportCallback(rd_kafka_t* rk, const rd_kafka_message_t* rkmessage,
 }
 
 } // namespace
-
 class KafkaProducer::Impl {
 public:
     Impl() : mProducer(nullptr), mConf(nullptr), mIsRunning(false) {}
     ~Impl() { Close(); }
 
-    bool Init(const KafkaConfig& config) {
+    bool Init(const KafkaConfig& config, KafkaAuthenticator* authenticator) {
         mConfig = config;
 
         mConf = rd_kafka_conf_new();
@@ -122,6 +122,10 @@ public:
             if (!SetConfig(kv.first, kv.second)) {
                 return false;
             }
+        }
+
+        if (authenticator && authenticator->IsAuthenticationEnabled()) {
+            authenticator->ApplyConfig(mConf);
         }
 
         rd_kafka_conf_set_dr_msg_cb(mConf, DeliveryReportCallback);
@@ -227,8 +231,8 @@ KafkaProducer::KafkaProducer() : mImpl(std::make_unique<Impl>()) {
 
 KafkaProducer::~KafkaProducer() = default;
 
-bool KafkaProducer::Init(const KafkaConfig& config) {
-    return mImpl->Init(config);
+bool KafkaProducer::Init(const KafkaConfig& config, KafkaAuthenticator* authenticator) {
+    return mImpl->Init(config, authenticator);
 }
 
 void KafkaProducer::ProduceAsync(const std::string& topic,

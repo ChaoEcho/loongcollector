@@ -66,6 +66,19 @@ public:
     void TestPartitionKey_InvalidPartitionerType();
     void TestPartitionKey_InvalidHashKey();
     void TestPartitionKey_PartialInvalidHashKey();
+    void TestAuthentication_None();
+    void TestAuthentication_Plaintext();
+    void TestAuthentication_SSL();
+    void TestAuthentication_SASLPlaintext();
+    void TestAuthentication_SASLSSL();
+    void TestAuthentication_SASLWithKerberosKeytab();
+    void TestAuthentication_SASLWithKerberosPassword();
+    void TestAuthentication_InvalidSecurityProtocol();
+    void TestAuthentication_SASLPlaintextWithoutSASL();
+    void TestAuthentication_SASLSSLWithoutTLS();
+    void TestAuthentication_SSLWithSASL();
+    void TestAuthentication_SASLSCRAMSHA256();
+
 
 protected:
     void SetUp();
@@ -444,6 +457,221 @@ void FlusherKafkaUnittest::TestPartitionKey_PartialInvalidHashKey() {
     APSARA_TEST_FALSE(mFlusher->Init(config, optionalGoPipeline));
 }
 
+void FlusherKafkaUnittest::TestAuthentication_None() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    auto sourceBuffer = std::make_shared<SourceBuffer>();
+    PipelineEventGroup group(sourceBuffer);
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("key"), StringView("value"));
+
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
+
+void FlusherKafkaUnittest::TestAuthentication_Plaintext() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["Authentication"]["SecurityProtocol"] = "plaintext";
+
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    auto sourceBuffer = std::make_shared<SourceBuffer>();
+    PipelineEventGroup group(sourceBuffer);
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("key"), StringView("value"));
+
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
+
+void FlusherKafkaUnittest::TestAuthentication_SSL() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["Authentication"]["SecurityProtocol"] = "ssl";
+    config["Authentication"]["TLS"]["CAFile"] = "/path/to/ca.pem";
+    config["Authentication"]["TLS"]["CertFile"] = "/path/to/cert.pem";
+    config["Authentication"]["TLS"]["KeyFile"] = "/path/to/key.pem";
+    config["Authentication"]["TLS"]["InsecureSkipVerify"] = true;
+
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    auto sourceBuffer = std::make_shared<SourceBuffer>();
+    PipelineEventGroup group(sourceBuffer);
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("key"), StringView("value"));
+
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
+
+void FlusherKafkaUnittest::TestAuthentication_SASLPlaintext() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["Authentication"]["SecurityProtocol"] = "sasl_plaintext";
+    config["Authentication"]["SASL"]["Username"] = "testuser";
+    config["Authentication"]["SASL"]["Password"] = "testpass";
+    config["Authentication"]["SASL"]["Mechanism"] = "SCRAM-SHA-512";
+
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    auto sourceBuffer = std::make_shared<SourceBuffer>();
+    PipelineEventGroup group(sourceBuffer);
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("key"), StringView("value"));
+
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
+
+void FlusherKafkaUnittest::TestAuthentication_SASLSSL() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["Authentication"]["SecurityProtocol"] = "sasl_ssl";
+    config["Authentication"]["SASL"]["Username"] = "testuser";
+    config["Authentication"]["SASL"]["Password"] = "testpass";
+    config["Authentication"]["SASL"]["Mechanism"] = "PLAIN";
+    config["Authentication"]["TLS"]["CAFile"] = "/path/to/ca.pem";
+
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    auto sourceBuffer = std::make_shared<SourceBuffer>();
+    PipelineEventGroup group(sourceBuffer);
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("key"), StringView("value"));
+
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
+
+void FlusherKafkaUnittest::TestAuthentication_SASLWithKerberosKeytab() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["Authentication"]["SecurityProtocol"] = "sasl_ssl";
+    config["Authentication"]["SASL"]["Mechanism"] = "GSSAPI";
+    config["Authentication"]["SASL"]["Kerberos"]["ServiceName"] = "kafka";
+    config["Authentication"]["SASL"]["Kerberos"]["Principal"] = "user@EXAMPLE.COM";
+    config["Authentication"]["SASL"]["Kerberos"]["UseKeyTab"] = true;
+    config["Authentication"]["SASL"]["Kerberos"]["KeyTabPath"] = "/path/to/kafka.keytab";
+    config["Authentication"]["TLS"]["CAFile"] = "/path/to/ca.pem";
+
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    auto sourceBuffer = std::make_shared<SourceBuffer>();
+    PipelineEventGroup group(sourceBuffer);
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("key"), StringView("value"));
+
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
+
+void FlusherKafkaUnittest::TestAuthentication_SASLWithKerberosPassword() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["Authentication"]["SecurityProtocol"] = "sasl_plaintext";
+    config["Authentication"]["SASL"]["Mechanism"] = "GSSAPI";
+    config["Authentication"]["SASL"]["Kerberos"]["ServiceName"] = "kafka";
+    config["Authentication"]["SASL"]["Kerberos"]["Principal"] = "user@EXAMPLE.COM";
+    config["Authentication"]["SASL"]["Kerberos"]["UseKeyTab"] = false;
+    config["Authentication"]["SASL"]["Kerberos"]["Username"] = "user@EXAMPLE.COM";
+    config["Authentication"]["SASL"]["Kerberos"]["Password"] = "krb-password";
+
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    auto sourceBuffer = std::make_shared<SourceBuffer>();
+    PipelineEventGroup group(sourceBuffer);
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("key"), StringView("value"));
+
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
+
+void FlusherKafkaUnittest::TestAuthentication_InvalidSecurityProtocol() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["Authentication"]["SecurityProtocol"] = "invalid";
+
+    APSARA_TEST_FALSE(mFlusher->Init(config, optionalGoPipeline));
+}
+
+void FlusherKafkaUnittest::TestAuthentication_SASLPlaintextWithoutSASL() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["Authentication"]["SecurityProtocol"] = "sasl_plaintext";
+
+    APSARA_TEST_FALSE(mFlusher->Init(config, optionalGoPipeline));
+}
+
+void FlusherKafkaUnittest::TestAuthentication_SASLSSLWithoutTLS() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["Authentication"]["SecurityProtocol"] = "sasl_ssl";
+    config["Authentication"]["SASL"]["Username"] = "testuser";
+    config["Authentication"]["SASL"]["Password"] = "testpass";
+    config["Authentication"]["SASL"]["Mechanism"] = "PLAIN";
+
+    APSARA_TEST_FALSE(mFlusher->Init(config, optionalGoPipeline));
+}
+
+void FlusherKafkaUnittest::TestAuthentication_SSLWithSASL() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["Authentication"]["SecurityProtocol"] = "ssl";
+    config["Authentication"]["TLS"]["CAFile"] = "/path/to/ca.pem";
+    config["Authentication"]["SASL"]["Username"] = "testuser";
+    config["Authentication"]["SASL"]["Password"] = "testpass";
+    config["Authentication"]["SASL"]["Mechanism"] = "PLAIN";
+
+    APSARA_TEST_FALSE(mFlusher->Init(config, optionalGoPipeline));
+}
+
+void FlusherKafkaUnittest::TestAuthentication_SASLSCRAMSHA256() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    config["Authentication"]["SecurityProtocol"] = "sasl_plaintext";
+    config["Authentication"]["SASL"]["Username"] = "testuser";
+    config["Authentication"]["SASL"]["Password"] = "testpass";
+    config["Authentication"]["SASL"]["Mechanism"] = "SCRAM-SHA-256";
+
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+    APSARA_TEST_TRUE(mFlusher->Start());
+
+    auto sourceBuffer = std::make_shared<SourceBuffer>();
+    PipelineEventGroup group(sourceBuffer);
+    auto* event = group.AddLogEvent();
+    event->SetContent(StringView("key"), StringView("value"));
+
+    APSARA_TEST_TRUE(mFlusher->Send(std::move(group)));
+    APSARA_TEST_EQUAL(1, mFlusher->mSendCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSendDoneCnt->GetValue());
+    APSARA_TEST_EQUAL(1, mFlusher->mSuccessCnt->GetValue());
+}
 
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitSuccess)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitMissingBrokers)
@@ -467,7 +695,17 @@ UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_Hash)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_InvalidPartitionerType)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_InvalidHashKey)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionKey_PartialInvalidHashKey)
-
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestAuthentication_None)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestAuthentication_Plaintext)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestAuthentication_SSL)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestAuthentication_SASLPlaintext)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestAuthentication_SASLSSL)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestAuthentication_SASLWithKerberosKeytab)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestAuthentication_SASLWithKerberosPassword)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestAuthentication_InvalidSecurityProtocol)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestAuthentication_SASLPlaintextWithoutSASL)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestAuthentication_SASLSSLWithoutTLS)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestAuthentication_SSLWithSASL)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestAuthentication_SASLSCRAMSHA256)
 } // namespace logtail
-
 UNIT_TEST_MAIN

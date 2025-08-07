@@ -24,6 +24,7 @@
 
 namespace logtail {
 
+class KafkaAuthenticator;
 struct KafkaConfig;
 
 class KafkaProducer {
@@ -41,7 +42,7 @@ public:
     KafkaProducer();
     virtual ~KafkaProducer();
 
-    virtual bool Init(const KafkaConfig& config);
+    virtual bool Init(const KafkaConfig& config, KafkaAuthenticator* authenticator = nullptr);
     virtual void ProduceAsync(const std::string& topic, const std::string& key, std::string&& value, Callback callback);
     virtual bool Flush(int timeoutMs);
     virtual void Close();

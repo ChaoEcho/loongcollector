@@ -40,7 +40,7 @@ public:
     MockKafkaProducer() = default;
     ~MockKafkaProducer() override = default;
 
-    bool Init(const KafkaConfig& config) override {
+    bool Init(const KafkaConfig& config, KafkaAuthenticator* authenticator = nullptr) override {
         mInitialized = true;
         mConfig = config;
         return mInitSuccess;

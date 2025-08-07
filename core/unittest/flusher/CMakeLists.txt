@@ -33,6 +33,9 @@ target_link_libraries(sls_client_manager_unittest ${UT_BASE_TARGET})
 add_executable(topic_format_parser_unittest TopicFormatParserUnittest.cpp)
 target_link_libraries(topic_format_parser_unittest ${UT_BASE_TARGET})
 
+add_executable(kafka_authenticator_unittest KafkaAuthenticatorUnittest.cpp)
+target_link_libraries(kafka_authenticator_unittest ${UT_BASE_TARGET})
+
 if (ENABLE_ENTERPRISE)
     add_executable(enterprise_sls_client_manager_unittest EnterpriseSLSClientManagerUnittest.cpp SLSNetworkRequestMock.cpp)
     target_link_libraries(enterprise_sls_client_manager_unittest ${UT_BASE_TARGET})

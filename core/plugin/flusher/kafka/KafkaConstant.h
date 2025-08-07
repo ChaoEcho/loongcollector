@@ -35,6 +35,7 @@ extern const std::string KAFKA_CONFIG_RETRY_BACKOFF_MS;
 extern const std::string KAFKA_CONFIG_REQUEST_TIMEOUT_MS;
 extern const std::string KAFKA_CONFIG_PARTITIONER;
 
+
 extern const std::string KAFKA_ERROR_UNKNOWN;
 extern const std::string KAFKA_ERROR_BROKER_NOT_AVAILABLE;
 extern const std::string KAFKA_ERROR_LEADER_NOT_AVAILABLE;
@@ -80,5 +81,28 @@ extern const std::string PARTITIONER_HASH;
 extern const std::string PARTITIONER_PERFIX;
 extern const std::string LIBRDKAFKA_PARTITIONER_RANDOM;
 extern const std::string LIBRDKAFKA_PARTITIONER_MURMUR2_RANDOM;
+
+extern const std::string KAFKA_CONFIG_SECURITY_PROTOCOL;
+extern const std::string KAFKA_CONFIG_SASL_MECHANISM;
+extern const std::string KAFKA_CONFIG_SASL_USERNAME;
+extern const std::string KAFKA_CONFIG_SASL_PASSWORD;
+extern const std::string KAFKA_CONFIG_SSL_CA_LOCATION;
+extern const std::string KAFKA_CONFIG_SSL_CERTIFICATE_LOCATION;
+extern const std::string KAFKA_CONFIG_SSL_KEY_LOCATION;
+extern const std::string KAFKA_CONFIG_SSL_KEY_PASSWORD;
+extern const std::string KAFKA_CONFIG_ENABLE_SSL_CERT_VERIFICATION;
+extern const std::string KAFKA_CONFIG_SASL_KERBEROS_SERVICE_NAME;
+extern const std::string KAFKA_CONFIG_SASL_KERBEROS_KEYTAB;
+extern const std::string KAFKA_CONFIG_SASL_KERBEROS_PRINCIPAL;
+
+extern const std::string KAFKA_SECURITY_PROTOCOL_PLAINTEXT;
+extern const std::string KAFKA_SECURITY_PROTOCOL_SSL;
+extern const std::string KAFKA_SECURITY_PROTOCOL_SASL_PLAINTEXT;
+extern const std::string KAFKA_SECURITY_PROTOCOL_SASL_SSL;
+
+extern const std::string KAFKA_SASL_MECHANISM_PLAIN;
+extern const std::string KAFKA_SASL_MECHANISM_SCRAM_SHA_256;
+extern const std::string KAFKA_SASL_MECHANISM_SCRAM_SHA_512;
+extern const std::string KAFKA_SASL_MECHANISM_GSSAPI;
 
 } // namespace logtail
