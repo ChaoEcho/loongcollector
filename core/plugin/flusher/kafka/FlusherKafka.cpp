@@ -25,8 +25,10 @@
 #include "collection_pipeline/queue/SenderQueueManager.h"
 #include "common/ParamExtractor.h"
 #include "logger/Logger.h"
+#include "models/LogEvent.h"
 #include "monitor/AlarmManager.h"
 #include "monitor/metric_constants/MetricConstants.h"
+#include "plugin/flusher/kafka/KafkaConstant.h"
 
 using namespace std;
 
@@ -46,6 +48,43 @@ bool FlusherKafka::Init(const Json::Value& config, Json::Value& optionalGoPipeli
         PARAM_ERROR_RETURN(mContext->GetLogger(),
                            mContext->GetAlarm(),
                            errorMsg,
+                           sName,
+                           mContext->GetConfigName(),
+                           mContext->GetProjectName(),
+                           mContext->GetLogstoreName(),
+                           mContext->GetRegion());
+    }
+
+    if (mKafkaConfig.PartitionerType.empty() || mKafkaConfig.PartitionerType == PARTITIONER_RANDOM) {
+        mKafkaConfig.Partitioner = LIBRDKAFKA_PARTITIONER_RANDOM;
+    } else if (mKafkaConfig.PartitionerType == PARTITIONER_HASH) {
+        if (mKafkaConfig.HashKeys.empty()) {
+            PARAM_ERROR_RETURN(mContext->GetLogger(),
+                               mContext->GetAlarm(),
+                               "HashKeys must be specified when PartitionerType is hash",
+                               sName,
+                               mContext->GetConfigName(),
+                               mContext->GetProjectName(),
+                               mContext->GetLogstoreName(),
+                               mContext->GetRegion());
+        }
+        for (const auto& key : mKafkaConfig.HashKeys) {
+            if (key.rfind(PARTITIONER_PERFIX, 0) != 0) {
+                PARAM_ERROR_RETURN(mContext->GetLogger(),
+                                   mContext->GetAlarm(),
+                                   "HashKeys must start with " + PARTITIONER_PERFIX,
+                                   sName,
+                                   mContext->GetConfigName(),
+                                   mContext->GetProjectName(),
+                                   mContext->GetLogstoreName(),
+                                   mContext->GetRegion());
+            }
+        }
+        mKafkaConfig.Partitioner = LIBRDKAFKA_PARTITIONER_MURMUR2_RANDOM;
+    } else {
+        PARAM_ERROR_RETURN(mContext->GetLogger(),
+                           mContext->GetAlarm(),
+                           "Unknown PartitionerType: " + mKafkaConfig.PartitionerType,
                            sName,
                            mContext->GetConfigName(),
                            mContext->GetProjectName(),
@@ -122,7 +161,7 @@ bool FlusherKafka::SerializeAndSend(PipelineEventGroup&& group) {
     }
 
     GroupTags groupTags = group.GetTags();
-    std::map<std::string, EventsContainer> topicToEventsMap;
+    std::map<std::string, std::map<std::string, EventsContainer>> topicKeyToEventsMap;
 
     auto events = std::move(group.MutableEvents());
 
@@ -135,51 +174,98 @@ bool FlusherKafka::SerializeAndSend(PipelineEventGroup&& group) {
                 LOG_ERROR(mContext->GetLogger(), ("Failed to format dynamic topic from template", mKafkaConfig.Topic));
             }
         }
+        std::string partitionKey;
+        if (mKafkaConfig.PartitionerType == PARTITIONER_HASH) {
+            partitionKey = GeneratePartitionKey(event);
+        }
         mTopicSet.insert(topic);
-        topicToEventsMap[topic].emplace_back(std::move(event));
+        topicKeyToEventsMap[topic][partitionKey].emplace_back(std::move(event));
     }
 
     bool allSuccess = true;
 
-    for (auto& kv : topicToEventsMap) {
+    for (auto& kv : topicKeyToEventsMap) {
         const std::string& topic = kv.first;
-        EventsContainer& topicEvents = kv.second;
+        auto& keyMap = kv.second;
+        for (auto& kk : keyMap) {
+            const std::string& partitionKey = kk.first;
+            EventsContainer& topicEvents = kk.second;
 
-        BatchedEvents batchedEvents;
-        batchedEvents.mEvents = std::move(topicEvents);
-        batchedEvents.mTags = group.GetSizedTags();
-        batchedEvents.mSourceBuffers.emplace_back(group.GetSourceBuffer());
-        batchedEvents.mExactlyOnceCheckpoint = group.GetExactlyOnceCheckpoint();
+            BatchedEvents batchedEvents;
+            batchedEvents.mEvents = std::move(topicEvents);
+            batchedEvents.mTags = group.GetSizedTags();
+            batchedEvents.mSourceBuffers.emplace_back(group.GetSourceBuffer());
+            batchedEvents.mExactlyOnceCheckpoint = group.GetExactlyOnceCheckpoint();
 
-        string serializedData;
-        string errorMsg;
-        if (!mSerializer->DoSerialize(std::move(batchedEvents), serializedData, errorMsg)) {
-            LOG_ERROR(mContext->GetLogger(),
-                      ("failed to serialize events", errorMsg)("topic", topic)("action", "discard data"));
-            mContext->GetAlarm().SendAlarmCritical(SERIALIZE_FAIL_ALARM,
-                                                   "failed to serialize events: " + errorMsg + "\taction: discard data",
-                                                   mContext->GetRegion(),
-                                                   mContext->GetProjectName(),
-                                                   mContext->GetConfigName(),
-                                                   mContext->GetLogstoreName());
-            mDiscardCnt->Add(1);
-            allSuccess = false;
-            continue;
+            string serializedData;
+            string errorMsg;
+            if (!mSerializer->DoSerialize(std::move(batchedEvents), serializedData, errorMsg)) {
+                LOG_ERROR(mContext->GetLogger(),
+                          ("failed to serialize events", errorMsg)("topic", topic)("action", "discard data"));
+                mContext->GetAlarm().SendAlarmCritical(SERIALIZE_FAIL_ALARM,
+                                                       "failed to serialize events: " + errorMsg
+                                                           + "\taction: discard data",
+                                                       mContext->GetRegion(),
+                                                       mContext->GetProjectName(),
+                                                       mContext->GetConfigName(),
+                                                       mContext->GetLogstoreName());
+                mDiscardCnt->Add(1);
+                allSuccess = false;
+                continue;
+            }
+
+            mSendCnt->Add(1);
+
+            size_t bytes = serializedData.size();
+            mProducer->ProduceAsync(topic,
+                                    partitionKey,
+                                    std::move(serializedData),
+                                    [this, bytes](bool success, const KafkaProducer::ErrorInfo& errorInfo) {
+                                        if (success) {
+                                            LOG_DEBUG(mContext->GetLogger(), ("kafka message queued", bytes));
+                                        }
+                                        HandleDeliveryResult(success, errorInfo);
+                                    });
         }
-
-        mSendCnt->Add(1);
-
-        size_t bytes = serializedData.size();
-        mProducer->ProduceAsync(
-            topic, std::move(serializedData), [this, bytes](bool success, const KafkaProducer::ErrorInfo& errorInfo) {
-                if (success) {
-                    LOG_DEBUG(mContext->GetLogger(), ("kafka message queued", bytes));
-                }
-                HandleDeliveryResult(success, errorInfo);
-            });
     }
 
     return allSuccess;
+}
+
+std::string FlusherKafka::GeneratePartitionKey(const PipelineEventPtr& event) const {
+    if (mKafkaConfig.PartitionerType != PARTITIONER_HASH) {
+        return "";
+    }
+    std::vector<std::string> values;
+    for (const auto& key : mKafkaConfig.HashKeys) {
+        std::string fieldName = key.substr(PARTITIONER_PERFIX.length());
+        switch (event->GetType()) {
+            case PipelineEvent::Type::LOG: {
+                const LogEvent& logEvent = event.Cast<LogEvent>();
+                auto v = logEvent.GetContent(StringView(fieldName));
+                if (!v.empty()) {
+                    values.push_back(v.to_string());
+                }
+                break;
+            }
+            default:
+                LOG_ERROR(
+                    mContext->GetLogger(),
+                    ("unsupported event type for partition key", PipelineEventTypeToString(event->GetType()).c_str()));
+                break;
+        }
+    }
+    if (values.empty()) {
+        return "";
+    }
+    std::ostringstream oss;
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) {
+            oss << "###";
+        }
+        oss << values[i];
+    }
+    return oss.str();
 }
 
 void FlusherKafka::HandleDeliveryResult(bool success, const KafkaProducer::ErrorInfo& errorInfo) {

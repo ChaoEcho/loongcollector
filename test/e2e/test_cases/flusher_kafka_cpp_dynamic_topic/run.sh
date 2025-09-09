@@ -15,8 +15,12 @@
 # limitations under the License.
 sleep 3
 for i in {1..30} ; do
-  echo "{\"env\":\"prod\",\"service\":\"serviceA\",\"msg\":\"hello-$i\"}"
+  if [ $((i % 2)) -eq 0 ]; then
+    svc="serviceA"
+  else
+    svc="serviceB"
+  fi
+  echo "{\"env\":\"prod\",\"service\":\"$svc\",\"msg\":\"hello-$i\"}"
   sleep 0.1
 done
 sleep 3600
-

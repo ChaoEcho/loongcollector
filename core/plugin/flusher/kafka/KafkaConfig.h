@@ -33,6 +33,10 @@ struct KafkaConfig {
 
     std::string Version = "1.0.0";
 
+    std::string PartitionerType;
+    std::vector<std::string> HashKeys;
+    std::string Partitioner;
+
     uint32_t QueueBufferingMaxKbytes = 1048576;
     uint32_t QueueBufferingMaxMessages = 100000;
 
@@ -73,6 +77,10 @@ struct KafkaConfig {
             errorMsg = "invalid Version format, expected x.y.z[.n]";
             return false;
         }
+
+
+        GetOptionalStringParam(config, "PartitionerType", PartitionerType, errorMsg);
+        GetOptionalListParam<std::string>(config, "HashKeys", HashKeys, errorMsg);
 
         GetOptionalUIntParam(config, "BulkFlushFrequency", BulkFlushFrequency, errorMsg);
         GetOptionalUIntParam(config, "BulkMaxSize", BulkMaxSize, errorMsg);

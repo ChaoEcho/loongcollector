@@ -98,14 +98,16 @@ func (k *KafkaSubscriber) GetData(sql string, startTime int32) ([]*protocol.LogG
 	}
 	defer consumer.Close()
 
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		parts, err2 := consumer.Partitions(k.Topic)
-		if err2 == nil && len(parts) > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			if err2 != nil {
+    deadline := time.Now().Add(30 * time.Second)
+    var parts []int32
+    for {
+        var err2 error
+        parts, err2 = consumer.Partitions(k.Topic)
+        if err2 == nil && len(parts) > 0 {
+            break
+        }
+        if time.Now().After(deadline) {
+            if err2 != nil {
 				return nil, fmt.Errorf("failed to get partitions for topic %s: %v", k.Topic, err2)
 			}
 			return nil, fmt.Errorf("no partitions available for topic %s", k.Topic)
@@ -113,18 +115,16 @@ func (k *KafkaSubscriber) GetData(sql string, startTime int32) ([]*protocol.LogG
 		time.Sleep(1 * time.Second)
 	}
 
-	var partitionConsumer sarama.PartitionConsumer
-	for {
-		partitionConsumer, err = consumer.ConsumePartition(k.Topic, 0, sarama.OffsetOldest)
-		if err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("failed to create partition consumer: %w", err)
-		}
-		time.Sleep(1 * time.Second)
-	}
-	defer partitionConsumer.Close()
+    // consume all partitions to reflect partitioning behavior
+    var partitionConsumers []sarama.PartitionConsumer
+    for _, p := range parts {
+        pc, err := consumer.ConsumePartition(k.Topic, p, sarama.OffsetOldest)
+        if err != nil {
+            return nil, fmt.Errorf("failed to create partition consumer for p=%d: %w", p, err)
+        }
+        partitionConsumers = append(partitionConsumers, pc)
+        defer pc.Close()
+    }
 
 	logGroup := &protocol.LogGroup{Logs: []*protocol.Log{}}
 
@@ -136,68 +136,78 @@ func (k *KafkaSubscriber) GetData(sql string, startTime int32) ([]*protocol.LogG
 
 	logger.Infof(context.Background(), "Starting to consume messages from topic: %s", k.Topic)
 
-	for messageCount < maxMessages {
-		select {
-		case msg := <-partitionConsumer.Messages():
-			if len(msg.Value) == 0 {
-				continue
-			}
-			raw := string(msg.Value)
+    out := make(chan *sarama.ConsumerMessage, 1024)
+    for _, pc := range partitionConsumers {
+        go func(c sarama.PartitionConsumer) {
+            for msg := range c.Messages() {
+                out <- msg
+            }
+        }(pc)
+    }
 
-			records := strings.Split(raw, "\n")
-			for _, rec := range records {
-				rec = strings.TrimSpace(rec)
-				if rec == "" {
-					continue
-				}
-				messageContent := rec
-				if strings.Contains(rec, "\"content\"") {
-					start := strings.Index(rec, `"content"`)
-					if start != -1 {
-						colon := strings.Index(rec[start:], `:`)
-						if colon != -1 {
-							s := start + colon + 1
-							q1 := strings.Index(rec[s:], `"`)
-							if q1 != -1 {
-								s += q1 + 1
-								q2 := strings.Index(rec[s:], `"`)
-								if q2 != -1 {
-									messageContent = rec[s : s+q2]
-								}
-							}
-						}
-					}
-				}
+    for messageCount < maxMessages {
+        select {
+        case msg := <-out:
+            if msg == nil || len(msg.Value) == 0 {
+                continue
+            }
+            raw := string(msg.Value)
 
-				expectedContent := messageContent
-				if !strings.Contains(expectedContent, "v") && strings.Contains(k.Topic, "v") {
-					parts := strings.Split(k.Topic, "-")
-					for _, part := range parts {
-						if strings.HasPrefix(part, "v") {
-							expectedContent = "hello-" + part
-							break
-						}
-					}
-				}
+            records := strings.Split(raw, "\n")
+            for _, rec := range records {
+                rec = strings.TrimSpace(rec)
+                if rec == "" {
+                    continue
+                }
+                messageContent := rec
+                if strings.Contains(rec, "\"content\"") {
+                    start := strings.Index(rec, `"content"`)
+                    if start != -1 {
+                        colon := strings.Index(rec[start:], `:`)
+                        if colon != -1 {
+                            s := start + colon + 1
+                            q1 := strings.Index(rec[s:], `"`)
+                            if q1 != -1 {
+                                s += q1 + 1
+                                q2 := strings.Index(rec[s:], `"`)
+                                if q2 != -1 {
+                                    messageContent = rec[s : s+q2]
+                                }
+                            }
+                        }
+                    }
+                }
 
-				log := &protocol.Log{Contents: []*protocol.Log_Content{
-					{Key: "content", Value: expectedContent},
-					{Key: "topic", Value: k.Topic},
-				}}
-				logGroup.Logs = append(logGroup.Logs, log)
-				messageCount++
-				if messageCount >= maxMessages {
-					break
-				}
-			}
-		case <-ctx.Done():
-			logger.Infof(context.Background(), "Timeout reached, collected %d messages from topic %s", messageCount, k.Topic)
-			if messageCount == 0 {
-				return nil, fmt.Errorf("no messages received from kafka topic %s", k.Topic)
-			}
-			return []*protocol.LogGroup{logGroup}, nil
-		}
-	}
+                expectedContent := messageContent
+                if !strings.Contains(expectedContent, "v") && strings.Contains(k.Topic, "v") {
+                    parts := strings.Split(k.Topic, "-")
+                    for _, part := range parts {
+                        if strings.HasPrefix(part, "v") {
+                            expectedContent = "hello-" + part
+                            break
+                        }
+                    }
+                }
+
+                log := &protocol.Log{Contents: []*protocol.Log_Content{
+                    {Key: "content", Value: expectedContent},
+                    {Key: "topic", Value: k.Topic},
+                    {Key: "partition", Value: fmt.Sprintf("%d", msg.Partition)},
+                }}
+                logGroup.Logs = append(logGroup.Logs, log)
+                messageCount++
+                if messageCount >= maxMessages {
+                    break
+                }
+            }
+        case <-ctx.Done():
+            logger.Infof(context.Background(), "Timeout reached, collected %d messages from topic %s", messageCount, k.Topic)
+            if messageCount == 0 {
+                return nil, fmt.Errorf("no messages received from kafka topic %s", k.Topic)
+            }
+            return []*protocol.LogGroup{logGroup}, nil
+        }
+    }
 
 	logger.Infof(context.Background(), "Successfully collected %d messages from topic %s", messageCount, k.Topic)
 	return []*protocol.LogGroup{logGroup}, nil
