@@ -129,6 +129,13 @@ public:
             return false;
         }
 
+
+        if (!mConfig.Partitioner.empty()) {
+            if (!SetConfig(KAFKA_CONFIG_PARTITIONER, mConfig.Partitioner)) {
+                return false;
+            }
+        }
+
         std::string acksStr;
         if (mConfig.RequiredAcks < 0) {
             acksStr = "all";
@@ -197,6 +204,13 @@ public:
     }
 
     void ProduceAsync(const std::string& topic, std::string&& value, KafkaProducer::Callback callback) {
+        ProduceAsync(topic, std::string(), std::move(value), std::move(callback));
+    }
+
+    void ProduceAsync(const std::string& topic,
+                      const std::string& key,
+                      std::string&& value,
+                      KafkaProducer::Callback callback) {
         rd_kafka_t* producer = nullptr;
         {
             std::lock_guard<std::mutex> lock(mProducerMutex);
@@ -214,13 +228,25 @@ public:
         auto* context = GetContext();
         context->callback = std::move(callback);
 
-        rd_kafka_resp_err_t err = rd_kafka_producev(producer,
-                                                    RD_KAFKA_V_TOPIC(topic.c_str()),
-                                                    RD_KAFKA_V_PARTITION(RD_KAFKA_PARTITION_UA),
-                                                    RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
-                                                    RD_KAFKA_V_VALUE(value.data(), value.size()),
-                                                    RD_KAFKA_V_OPAQUE(context),
-                                                    RD_KAFKA_V_END);
+        rd_kafka_resp_err_t err;
+        if (!key.empty()) {
+            err = rd_kafka_producev(producer,
+                                    RD_KAFKA_V_TOPIC(topic.c_str()),
+                                    RD_KAFKA_V_PARTITION(RD_KAFKA_PARTITION_UA),
+                                    RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
+                                    RD_KAFKA_V_KEY(key.data(), key.size()),
+                                    RD_KAFKA_V_VALUE(value.data(), value.size()),
+                                    RD_KAFKA_V_OPAQUE(context),
+                                    RD_KAFKA_V_END);
+        } else {
+            err = rd_kafka_producev(producer,
+                                    RD_KAFKA_V_TOPIC(topic.c_str()),
+                                    RD_KAFKA_V_PARTITION(RD_KAFKA_PARTITION_UA),
+                                    RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
+                                    RD_KAFKA_V_VALUE(value.data(), value.size()),
+                                    RD_KAFKA_V_OPAQUE(context),
+                                    RD_KAFKA_V_END);
+        }
 
         if (err != RD_KAFKA_RESP_ERR_NO_ERROR) {
             LOG_ERROR(sLogger,
@@ -327,6 +353,13 @@ bool KafkaProducer::Init(const KafkaConfig& config) {
 
 void KafkaProducer::ProduceAsync(const std::string& topic, std::string&& value, Callback callback) {
     mImpl->ProduceAsync(topic, std::move(value), std::move(callback));
+}
+
+void KafkaProducer::ProduceAsync(const std::string& topic,
+                                 const std::string& key,
+                                 std::string&& value,
+                                 Callback callback) {
+    mImpl->ProduceAsync(topic, key, std::move(value), std::move(callback));
 }
 
 bool KafkaProducer::Flush(int timeoutMs) {

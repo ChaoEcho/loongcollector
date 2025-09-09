@@ -99,8 +99,10 @@ func (k *KafkaSubscriber) GetData(sql string, startTime int32) ([]*protocol.LogG
 	defer consumer.Close()
 
 	deadline := time.Now().Add(30 * time.Second)
+	var parts []int32
 	for {
-		parts, err2 := consumer.Partitions(k.Topic)
+		var err2 error
+		parts, err2 = consumer.Partitions(k.Topic)
 		if err2 == nil && len(parts) > 0 {
 			break
 		}
@@ -113,18 +115,16 @@ func (k *KafkaSubscriber) GetData(sql string, startTime int32) ([]*protocol.LogG
 		time.Sleep(1 * time.Second)
 	}
 
-	var partitionConsumer sarama.PartitionConsumer
-	for {
-		partitionConsumer, err = consumer.ConsumePartition(k.Topic, 0, sarama.OffsetOldest)
-		if err == nil {
-			break
+	// consume all partitions to reflect partitioning behavior
+	var partitionConsumers []sarama.PartitionConsumer
+	for _, p := range parts {
+		pc, err := consumer.ConsumePartition(k.Topic, p, sarama.OffsetOldest)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create partition consumer for p=%d: %w", p, err)
 		}
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("failed to create partition consumer: %w", err)
-		}
-		time.Sleep(1 * time.Second)
+		partitionConsumers = append(partitionConsumers, pc)
+		defer pc.Close()
 	}
-	defer partitionConsumer.Close()
 
 	logGroup := &protocol.LogGroup{Logs: []*protocol.Log{}}
 
@@ -136,10 +136,19 @@ func (k *KafkaSubscriber) GetData(sql string, startTime int32) ([]*protocol.LogG
 
 	logger.Infof(context.Background(), "Starting to consume messages from topic: %s", k.Topic)
 
+	out := make(chan *sarama.ConsumerMessage, 1024)
+	for _, pc := range partitionConsumers {
+		go func(c sarama.PartitionConsumer) {
+			for msg := range c.Messages() {
+				out <- msg
+			}
+		}(pc)
+	}
+
 	for messageCount < maxMessages {
 		select {
-		case msg := <-partitionConsumer.Messages():
-			if len(msg.Value) == 0 {
+		case msg := <-out:
+			if msg == nil || len(msg.Value) == 0 {
 				continue
 			}
 			raw := string(msg.Value)
@@ -183,6 +192,7 @@ func (k *KafkaSubscriber) GetData(sql string, startTime int32) ([]*protocol.LogG
 				log := &protocol.Log{Contents: []*protocol.Log_Content{
 					{Key: "content", Value: expectedContent},
 					{Key: "topic", Value: k.Topic},
+					{Key: "partition", Value: fmt.Sprintf("%d", msg.Partition)},
 				}}
 				logGroup.Logs = append(logGroup.Logs, log)
 				messageCount++

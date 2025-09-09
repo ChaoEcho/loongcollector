@@ -44,6 +44,7 @@ public:
 
     virtual bool Init(const KafkaConfig& config);
     virtual void ProduceAsync(const std::string& topic, std::string&& value, Callback callback);
+    virtual void ProduceAsync(const std::string& topic, const std::string& key, std::string&& value, Callback callback);
     virtual bool Flush(int timeoutMs);
     virtual void Close();
 
