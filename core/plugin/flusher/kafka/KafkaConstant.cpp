@@ -39,6 +39,13 @@ const std::string KAFKA_CONFIG_API_VERSION_REQUEST = "api.version.request";
 const std::string KAFKA_CONFIG_BROKER_VERSION_FALLBACK = "broker.version.fallback";
 const std::string KAFKA_CONFIG_API_VERSION_FALLBACK_MS = "api.version.fallback.ms";
 
+const std::string KAFKA_CONFIG_SECURITY_PROTOCOL = "security.protocol";
+const std::string KAFKA_CONFIG_ENABLE_SSL_CERTIFICATE_VERIFICATION = "enable.ssl.certificate.verification";
+const std::string KAFKA_CONFIG_SSL_CA_LOCATION = "ssl.ca.location";
+const std::string KAFKA_CONFIG_SSL_CERTIFICATE_LOCATION = "ssl.certificate.location";
+const std::string KAFKA_CONFIG_SSL_KEY_LOCATION = "ssl.key.location";
+const std::string KAFKA_CONFIG_SSL_ENDPOINT_IDENTIFICATION_ALG = "ssl.endpoint.identification.algorithm";
+
 const int KAFKA_POLL_INTERVAL_MS = 100;
 const int KAFKA_FLUSH_TIMEOUT_MS = 5000;
 

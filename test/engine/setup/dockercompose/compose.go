@@ -252,6 +252,10 @@ func (c *ComposeBooter) createComposeFile(ctx context.Context) error {
 		for k := range newServices {
 			services[k] = newServices[k]
 		}
+		// merge volumes from case compose file
+		if caseVolumes, ok := caseCfg["volumes"]; ok {
+			cfg["volumes"] = caseVolumes
+		}
 		loongcollector["depends_on"] = loongcollectorDependOn
 	}
 	// volume

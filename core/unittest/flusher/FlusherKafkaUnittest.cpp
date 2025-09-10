@@ -97,6 +97,10 @@ public:
     void TestDynamicTopic_FromTags();
     void TestPartitionerHashConfigValidation();
     void TestPartitionerHashKeySend();
+    void TestInitWithTLS();
+    void TestInitTLSCertOnly_Fails();
+    void TestInitTLSKeyOnly_Fails();
+    void TestInitTLSDisabled_IgnoresCertKey();
 
 protected:
     void SetUp();
@@ -471,6 +475,62 @@ void FlusherKafkaUnittest::TestPartitionerHashKeySend() {
     APSARA_TEST_TRUE(keys.find("serviceB") != keys.end());
 }
 
+void FlusherKafkaUnittest::TestInitWithTLS() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    // add TLS config
+    Json::Value tls(Json::objectValue);
+    tls["Enabled"] = true;
+    tls["CAFile"] = "/path/to/ca.crt";
+    tls["CertFile"] = "/path/to/client.crt";
+    tls["KeyFile"] = "/path/to/client.key";
+    Json::Value auth(Json::objectValue);
+    auth["TLS"] = tls;
+    config["Authentication"] = auth;
+
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+}
+
+void FlusherKafkaUnittest::TestInitTLSCertOnly_Fails() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    Json::Value tls(Json::objectValue);
+    tls["Enabled"] = true;
+    tls["CertFile"] = "/path/to/client.crt"; // missing KeyFile
+    Json::Value auth(Json::objectValue);
+    auth["TLS"] = tls;
+    config["Authentication"] = auth;
+
+    APSARA_TEST_FALSE(mFlusher->Init(config, optionalGoPipeline));
+}
+
+void FlusherKafkaUnittest::TestInitTLSKeyOnly_Fails() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    Json::Value tls(Json::objectValue);
+    tls["Enabled"] = true;
+    tls["KeyFile"] = "/path/to/client.key"; // missing CertFile
+    Json::Value auth(Json::objectValue);
+    auth["TLS"] = tls;
+    config["Authentication"] = auth;
+
+    APSARA_TEST_FALSE(mFlusher->Init(config, optionalGoPipeline));
+}
+
+void FlusherKafkaUnittest::TestInitTLSDisabled_IgnoresCertKey() {
+    Json::Value optionalGoPipeline;
+    Json::Value config = CreateKafkaTestConfig(mTopic);
+    Json::Value tls(Json::objectValue);
+    tls["Enabled"] = false;
+    tls["CertFile"] = "/path/to/client.crt";
+    tls["KeyFile"] = "/path/to/client.key";
+    Json::Value auth(Json::objectValue);
+    auth["TLS"] = tls;
+    config["Authentication"] = auth;
+
+    APSARA_TEST_TRUE(mFlusher->Init(config, optionalGoPipeline));
+}
+
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitSuccess)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitMissingBrokers)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitMissingTopic)
@@ -493,6 +553,10 @@ UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_FallbackToStatic)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestDynamicTopic_FromTags)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionerHashConfigValidation)
 UNIT_TEST_CASE(FlusherKafkaUnittest, TestPartitionerHashKeySend)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitWithTLS)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitTLSCertOnly_Fails)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitTLSKeyOnly_Fails)
+UNIT_TEST_CASE(FlusherKafkaUnittest, TestInitTLSDisabled_IgnoresCertKey)
 
 } // namespace logtail
 

@@ -52,6 +52,14 @@ struct KafkaConfig {
 
     std::map<std::string, std::string> CustomConfig;
 
+    struct TLSConfig {
+        bool Enabled = false;
+        std::string CAFile;
+        std::string CertFile;
+        std::string KeyFile;
+        bool InsecureSkipVerify = false;
+    } TLS;
+
     bool Load(const Json::Value& config, std::string& errorMsg) {
         if (!GetMandatoryListParam<std::string>(config, "Brokers", Brokers, errorMsg)) {
             return false;
@@ -98,6 +106,44 @@ struct KafkaConfig {
             const Json::Value& kafkaConfig = config["Kafka"];
             for (const auto& key : kafkaConfig.getMemberNames()) {
                 CustomConfig[key] = kafkaConfig[key].asString();
+            }
+        }
+
+        if (config.isMember("Authentication") && config["Authentication"].isObject()) {
+            const Json::Value& auth = config["Authentication"];
+            if (auth.isMember("TLS") && auth["TLS"].isObject()) {
+                const Json::Value& tls = auth["TLS"];
+                std::string err;
+                // Enabled
+                if (!GetOptionalBoolParam(tls, "Enabled", TLS.Enabled, err)) {
+                    errorMsg = err;
+                    return false;
+                }
+                if (!GetOptionalStringParam(tls, "CAFile", TLS.CAFile, err)) {
+                    errorMsg = err;
+                    return false;
+                }
+                if (!GetOptionalStringParam(tls, "CertFile", TLS.CertFile, err)) {
+                    errorMsg = err;
+                    return false;
+                }
+                if (!GetOptionalStringParam(tls, "KeyFile", TLS.KeyFile, err)) {
+                    errorMsg = err;
+                    return false;
+                }
+                if (!GetOptionalBoolParam(tls, "InsecureSkipVerify", TLS.InsecureSkipVerify, err)) {
+                    errorMsg = err;
+                    return false;
+                }
+
+                if (TLS.Enabled) {
+                    bool certSet = !TLS.CertFile.empty();
+                    bool keySet = !TLS.KeyFile.empty();
+                    if ((certSet && !keySet) || (!certSet && keySet)) {
+                        errorMsg = "for TLS auth, either both CertFile and KeyFile must be supplied, or neither";
+                        return false;
+                    }
+                }
             }
         }
 

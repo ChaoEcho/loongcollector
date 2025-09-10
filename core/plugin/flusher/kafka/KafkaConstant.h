@@ -39,6 +39,13 @@ extern const std::string KAFKA_CONFIG_API_VERSION_REQUEST;
 extern const std::string KAFKA_CONFIG_BROKER_VERSION_FALLBACK;
 extern const std::string KAFKA_CONFIG_API_VERSION_FALLBACK_MS;
 
+extern const std::string KAFKA_CONFIG_SECURITY_PROTOCOL; // plaintext, ssl, sasl_plaintext, sasl_ssl
+extern const std::string KAFKA_CONFIG_ENABLE_SSL_CERTIFICATE_VERIFICATION; // true/false
+extern const std::string KAFKA_CONFIG_SSL_CA_LOCATION; // path
+extern const std::string KAFKA_CONFIG_SSL_CERTIFICATE_LOCATION; // path
+extern const std::string KAFKA_CONFIG_SSL_KEY_LOCATION; // path
+extern const std::string KAFKA_CONFIG_SSL_ENDPOINT_IDENTIFICATION_ALG; // none, https
+
 extern const int KAFKA_POLL_INTERVAL_MS;
 extern const int KAFKA_FLUSH_TIMEOUT_MS;
 

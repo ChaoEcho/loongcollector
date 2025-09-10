@@ -46,6 +46,35 @@ flushers:
     MaxRetries: 2
 ```
 
+## 安全连接配置
+
+`flusher_kafka_cpp` 支持 TLS 安全连接（后续将扩展 Kerberos）。
+
+TLS 配置与 `flusher_kafka_v2` 保持对齐，配置项位于 `Authentication.TLS`：
+
+```yaml
+flushers:
+  - Type: flusher_kafka_cpp
+    Brokers: ["kafka:9093"]
+    Topic: "secure-topic"
+    Authentication:
+      TLS:
+        Enabled: true
+        CAFile: /data/cert/ca.crt
+        CertFile: /data/cert/client.crt
+        KeyFile: /data/cert/client.key
+        InsecureSkipVerify: false
+```
+
+说明：
+- 当 `Enabled: true` 时，底层将设置 `security.protocol=ssl` 并映射以下 librdkafka 配置：
+  - `ssl.ca.location` ← `CAFile`
+  - `ssl.certificate.location` ← `CertFile`
+  - `ssl.key.location` ← `KeyFile`
+  - `enable.ssl.certificate.verification=false` 当 `InsecureSkipVerify=true`（并同时设置 `ssl.endpoint.identification.algorithm=none`）
+- `CertFile` 与 `KeyFile` 需成对配置；若仅配置其中之一将报错。
+  
+
 
 ## 动态 Topic
 

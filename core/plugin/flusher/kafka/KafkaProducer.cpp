@@ -154,6 +154,39 @@ public:
                      "message.timeout.ms", mConfig.MessageTimeoutMs)("message.send.max.retries", mConfig.MaxRetries)(
                      "retry.backoff.ms", mConfig.RetryBackoffMs));
 
+        // TLS configurations
+        if (mConfig.TLS.Enabled) {
+            // security.protocol=ssl
+            if (!SetConfig(KAFKA_CONFIG_SECURITY_PROTOCOL, "ssl")) {
+                return false;
+            }
+            if (!mConfig.TLS.CAFile.empty()) {
+                if (!SetConfig(KAFKA_CONFIG_SSL_CA_LOCATION, mConfig.TLS.CAFile)) {
+                    return false;
+                }
+            }
+            if (!mConfig.TLS.CertFile.empty()) {
+                if (!SetConfig(KAFKA_CONFIG_SSL_CERTIFICATE_LOCATION, mConfig.TLS.CertFile)) {
+                    return false;
+                }
+            }
+            if (!mConfig.TLS.KeyFile.empty()) {
+                if (!SetConfig(KAFKA_CONFIG_SSL_KEY_LOCATION, mConfig.TLS.KeyFile)) {
+                    return false;
+                }
+            }
+            if (mConfig.TLS.InsecureSkipVerify) {
+                // disable certificate and hostname verification
+                if (!SetConfig(KAFKA_CONFIG_ENABLE_SSL_CERTIFICATE_VERIFICATION, "false")) {
+                    return false;
+                }
+                (void)SetConfig(KAFKA_CONFIG_SSL_ENDPOINT_IDENTIFICATION_ALG, "none");
+            } else {
+                // explicitly ensure verification is enabled (default is true, but explicit is fine)
+                (void)SetConfig(KAFKA_CONFIG_ENABLE_SSL_CERTIFICATE_VERIFICATION, "true");
+            }
+        }
+
         std::map<std::string, std::string> derivedConfigs;
         KafkaUtil::DeriveApiVersionConfigs(mConfig.Version, derivedConfigs);
         if (!derivedConfigs.empty()) {
