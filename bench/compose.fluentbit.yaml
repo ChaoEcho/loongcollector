@@ -1,0 +1,14 @@
+services:
+  fluent-bit:
+    image: fluent/fluent-bit:2.2
+    container_name: bench_fluentbit
+    command: -c /fluent-bit/etc/fluent-bit.conf
+    depends_on:
+      kafka:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    volumes:
+      - ./configs/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./data/fluentbit:/data
+    restart: unless-stopped

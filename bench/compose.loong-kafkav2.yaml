@@ -1,0 +1,13 @@
+services:
+  loong-kafkav2:
+    image: aliyun/loongcollector:0.0.1
+    container_name: bench_loong_kafkav2
+    depends_on:
+      kafka:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    volumes:
+      - ./configs/loong_kafkav2.yaml:/usr/local/loongcollector/conf/continuous_pipeline_config/local/bench_kafkav2.yaml:ro
+      - ./data/kafkav2:/data
+    restart: unless-stopped

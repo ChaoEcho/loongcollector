@@ -1,0 +1,14 @@
+enable: true
+inputs:
+  - Type: input_file
+    FilePaths:
+      - /data/*.log
+    MaxDirSearchDepth: 1
+    TailingAllMatchedFiles: true
+flushers:
+  - Type: flusher_kafka_native
+    Brokers:
+      - kafka:29092
+    Topic: bench-basic
+    Version: "3.6.0"
+    MaxMessageBytes: 5242880
