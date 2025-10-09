@@ -27,6 +27,11 @@ def run_cmd(cmd, cwd=None, check=True):
     return subprocess.run(cmd, cwd=cwd, check=check)
 
 
+def run_cmd_out(cmd, cwd=None, check=True) -> subprocess.CompletedProcess:
+    console.log(f"$ {' '.join(cmd)}")
+    return subprocess.run(cmd, cwd=cwd, check=check, capture_output=True, text=True)
+
+
 def compose_up(files):
     cmd = ["docker", "compose"]
     for f in files:
@@ -51,13 +56,155 @@ def compose_down(files, services=None, remove_volumes=False):
             down_cmd.append("-v")
         run_cmd(cmd + down_cmd, cwd=ROOT)
 
+
+def ensure_topic_partitions(
+    compose_files, topic: str, partitions: int, replication_factor: int = 1
+):
+    """Ensure the Kafka topic exists with at least the given partition count.
+    - create if not exists with desired partitions
+    - if exists but partitions < desired, alter to increase partitions (Kafka only allows increasing)
+    """
+    if partitions is None or partitions <= 0:
+        return
+    cmd = ["docker", "compose"]
+    for f in compose_files:
+        cmd += ["-f", str(f)]
+
+    # Wait for kafka to be ready to accept admin requests
+    ready = False
+    for _ in range(30):
+        try:
+            proc = run_cmd_out(
+                cmd
+                + [
+                    "exec",
+                    "-T",
+                    "kafka",
+                    "kafka-topics",
+                    "--bootstrap-server",
+                    "kafka:29092",
+                    "--list",
+                ],
+                cwd=ROOT,
+                check=False,
+            )
+            if proc.returncode == 0:
+                ready = True
+                break
+        except Exception:
+            pass
+        time.sleep(1)
+    if not ready:
+        console.log("[yellow]Kafka 可能尚未完全就绪，尝试继续创建/描述 topic……")
+
+    # Create if not exists
+    try:
+        run_cmd(
+            cmd
+            + [
+                "exec",
+                "-T",
+                "kafka",
+                "kafka-topics",
+                "--bootstrap-server",
+                "kafka:29092",
+                "--create",
+                "--if-not-exists",
+                "--topic",
+                topic,
+                "--partitions",
+                str(partitions),
+                "--replication-factor",
+                str(replication_factor),
+            ],
+            cwd=ROOT,
+        )
+    except subprocess.CalledProcessError as e:
+        console.log(f"[yellow]Topic create returned error (may already exist): {e}")
+
+    # Describe to get current partition count
+    try:
+        proc = run_cmd_out(
+            cmd
+            + [
+                "exec",
+                "-T",
+                "kafka",
+                "kafka-topics",
+                "--bootstrap-server",
+                "kafka:29092",
+                "--describe",
+                "--topic",
+                topic,
+            ],
+            cwd=ROOT,
+        )
+        desc = proc.stdout or ""
+        current = None
+        # Try to parse PartitionCount from the summary line
+        for line in desc.splitlines():
+            if "PartitionCount:" in line:
+                try:
+                    # e.g., "Topic: bench-basic\tTopicId: ...\tPartitionCount: 1\tReplicationFactor: 1 ..."
+                    parts = line.replace("\t", " ").split()
+                    for i, tok in enumerate(parts):
+                        if tok.startswith("PartitionCount:"):
+                            val = tok.split(":", 1)[1]
+                            current = int(val)
+                            break
+                except Exception:
+                    pass
+                break
+        # Fallback: count Partition lines
+        if current is None:
+            cnt = 0
+            for line in desc.splitlines():
+                if "Partition:" in line and "Topic:" in line:
+                    cnt += 1
+            if cnt > 0:
+                current = cnt
+
+        if current is None:
+            console.log("[yellow]未能解析当前分区数，跳过 alter")
+            return
+
+        if current < partitions:
+            console.log(f"[cyan]Increase partitions: {current} -> {partitions}")
+            run_cmd(
+                cmd
+                + [
+                    "exec",
+                    "-T",
+                    "kafka",
+                    "kafka-topics",
+                    "--bootstrap-server",
+                    "kafka:29092",
+                    "--alter",
+                    "--topic",
+                    topic,
+                    "--partitions",
+                    str(partitions),
+                ],
+                cwd=ROOT,
+            )
+    except subprocess.CalledProcessError as e:
+        console.log(f"[red]ensure_topic_partitions failed: {e}")
+
+
 def start_generator(rate_mb: float, outfile: Path) -> subprocess.Popen:
     ensure_dirs(outfile.parent)
     # recreate file to avoid读取旧内容
     if outfile.exists():
         outfile.unlink()
     outfile.touch()
-    cmd = [sys.executable, str(ROOT / "generate_log.py"), "--rate", str(rate_mb), "--file", str(outfile)]
+    cmd = [
+        sys.executable,
+        str(ROOT / "generate_log.py"),
+        "--rate",
+        str(rate_mb),
+        "--file",
+        str(outfile),
+    ]
     proc = subprocess.Popen(cmd, cwd=ROOT)
     return proc
 
@@ -184,17 +331,32 @@ def main():
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     run = sub.add_parser("run", help="run benchmark")
-    run.add_argument("--target", choices=["native", "kafkav2", "fluentbit", "all"], required=True)
+    run.add_argument(
+        "--target", choices=["native", "kafkav2", "fluentbit", "all"], required=True
+    )
     run.add_argument("--duration", type=int, default=30)
     run.add_argument("--rate-mb", type=float, default=50.0)
+    run.add_argument(
+        "--partitions", type=int, default=6, help="Kafka topic 分区数（默认 6）"
+    )
 
     args = parser.parse_args()
 
     if args.cmd == "run":
         # ensure kafka up
         compose_up([ROOT / "compose.kafka.yaml"])
+        # ensure topic partitions before any producers start
+        ensure_topic_partitions(
+            [ROOT / "compose.kafka.yaml"],
+            topic="bench-basic",
+            partitions=args.partitions,
+        )
         results = []
-        targets = [args.target] if args.target != "all" else ["native", "kafkav2", "fluentbit"]
+        targets = (
+            [args.target]
+            if args.target != "all"
+            else ["native", "kafkav2", "fluentbit"]
+        )
         for t in targets:
             console.rule(f"[bold]Running: {t}")
             try:
@@ -233,6 +395,7 @@ def main():
                 "duration": args.duration,
                 "rate_mb": args.rate_mb,
                 "target": args.target,
+                "partitions": args.partitions,
             },
             "results": results,
         }
@@ -241,9 +404,20 @@ def main():
 
         # 额外生成 Markdown 对比报告，便于可视化对比
         markdown_file = RESULTS_DIR / f"benchmark-{timestamp}.md"
-        max_msgs = max((m.get("msg_per_sec", 0) or 0) for m in results) if results else 0
+        max_msgs = (
+            max((m.get("msg_per_sec", 0) or 0) for m in results) if results else 0
+        )
         bar_width = 30
-        lines = ["# Kafka 输出基准对比", "", f"- UTC 时间：{timestamp}", f"- 测试目标：{args.target}", f"- 时长：{args.duration}s", f"- 日志生成速率：{args.rate_mb} MB/s", ""]
+        lines = [
+            "# Kafka 输出基准对比",
+            "",
+            f"- UTC 时间：{timestamp}",
+            f"- 测试目标：{args.target}",
+            f"- 时长：{args.duration}s",
+            f"- 日志生成速率：{args.rate_mb} MB/s",
+            f"- 分区数：{args.partitions}",
+            "",
+        ]
         lines.append("| Target | Msgs | Msgs/s | MB/s | 可视化 |")
         lines.append("| --- | ---: | ---: | ---: | --- |")
         for m in results:
@@ -256,7 +430,9 @@ def main():
             else:
                 bar_len = 1
             bar = "=" * bar_len if msg_rate > 0 else "."
-            lines.append(f"| {m.get('target', '-') } | {msgs:,} | {msg_rate:,.2f} | {mb_rate:,.2f} | {bar} |")
+            lines.append(
+                f"| {m.get('target', '-') } | {msgs:,} | {msg_rate:,.2f} | {mb_rate:,.2f} | {bar} |"
+            )
         markdown_file.write_text("\n".join(lines))
         console.log(f"Markdown 对比: {markdown_file.relative_to(ROOT)}")
 
