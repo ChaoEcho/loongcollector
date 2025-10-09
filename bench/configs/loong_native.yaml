@@ -1,4 +1,7 @@
 enable: true
+global:
+  UsingOldContentTag: true
+  DefaultLogQueueSize: 10000
 inputs:
   - Type: input_file
     FilePaths:
@@ -11,4 +14,17 @@ flushers:
       - kafka:29092
     Topic: bench-basic
     Version: "3.6.0"
-    MaxMessageBytes: 5242880
+    MaxMessageBytes: 10485760
+    QueueBufferingMaxMessages: 1000000
+    QueueBufferingMaxKbytes: 2097151
+    BulkMaxSize: 10000
+    BulkFlushFrequency: 100
+    MaxRetries: 10
+    RetryBackoffMs: 100
+    Timeout: 30000
+    MessageTimeoutMs: 300000
+    RequiredAcks: 1
+    Compression: none
+    Kafka:
+      linger.ms: "100"
+      queue.buffering.max.ms: "100"

@@ -239,6 +239,27 @@ def main():
         result_file.write_text(json.dumps(payload, indent=2))
         console.log(f"结果已保存: {result_file.relative_to(ROOT)}")
 
+        # 额外生成 Markdown 对比报告，便于可视化对比
+        markdown_file = RESULTS_DIR / f"benchmark-{timestamp}.md"
+        max_msgs = max((m.get("msg_per_sec", 0) or 0) for m in results) if results else 0
+        bar_width = 30
+        lines = ["# Kafka 输出基准对比", "", f"- UTC 时间：{timestamp}", f"- 测试目标：{args.target}", f"- 时长：{args.duration}s", f"- 日志生成速率：{args.rate_mb} MB/s", ""]
+        lines.append("| Target | Msgs | Msgs/s | MB/s | 可视化 |")
+        lines.append("| --- | ---: | ---: | ---: | --- |")
+        for m in results:
+            msgs = m.get("messages", 0)
+            msg_rate = m.get("msg_per_sec", 0)
+            mb_rate = m.get("approx_mb_per_sec", 0)
+            if max_msgs > 0 and msg_rate > 0:
+                ratio = min(1.0, msg_rate / max_msgs)
+                bar_len = max(1, int(ratio * bar_width))
+            else:
+                bar_len = 1
+            bar = "=" * bar_len if msg_rate > 0 else "."
+            lines.append(f"| {m.get('target', '-') } | {msgs:,} | {msg_rate:,.2f} | {mb_rate:,.2f} | {bar} |")
+        markdown_file.write_text("\n".join(lines))
+        console.log(f"Markdown 对比: {markdown_file.relative_to(ROOT)}")
+
         # 所有目标跑完后默认关闭 Kafka 栈（保留数据卷）
         compose_down([ROOT / "compose.kafka.yaml"])
 

@@ -8,6 +8,7 @@ services:
       zookeeper:
         condition: service_healthy
     volumes:
+      - ./configs/loongcollector_config.json:/usr/local/loongcollector/conf/instance_config/local/loongcollector_config.json:ro
       - ./configs/loong_native.yaml:/usr/local/loongcollector/conf/continuous_pipeline_config/local/bench_native.yaml:ro
       - ./data/native:/data
     restart: unless-stopped

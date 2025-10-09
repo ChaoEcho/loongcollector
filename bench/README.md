@@ -8,9 +8,10 @@
 
 组成
 - `compose.kafka.yaml`：单节点 Kafka + Zookeeper（暴露 `localhost:9092`）
-- `compose.loong-native.yaml`：loongcollector + 原生 Kafka 插件（挂载本地日志文件）
-- `compose.loong-kafkav2.yaml`：loongcollector + Go Kafka 插件（挂载本地日志文件）
+- `compose.loong-native.yaml`：loongcollector + 原生 Kafka 插件（挂载本地日志文件与性能调优配置）
+- `compose.loong-kafkav2.yaml`：loongcollector + Go Kafka 插件（挂载本地日志文件与性能调优配置）
 - `compose.fluentbit.yaml`：Fluent Bit 挂载本地日志文件并输出到 Kafka
+- `configs/loongcollector_config.json`：统一关闭 `max_bytes_per_sec` 限流并提升队列深度
 - `configs/loong_native.yaml`：loongcollector 使用 `flusher_kafka_native` 的最小配置
 - `configs/loong_kafkav2.yaml`：loongcollector 使用 `flusher_kafka_v2` 的最小配置
 - `configs/fluent-bit.conf`：Fluent Bit 最小配置（Tail + Kafka 输出）
@@ -40,16 +41,24 @@
 - 所有测试均使用固定 Topic、单分区。
 - 脚本会：
   1) 在 `data/<target>/input.log` 按指定速率产生日志（测试后自动清理）
-  2) 启动目标容器 tail 该文件并写入固定 Topic `bench-basic`
-  3) 从 `localhost:9092` 消费该 Topic，统计 N 秒内吞吐
-  4) 停止容器、删除日志文件，并打印/保存结果
+ 2) 启动目标容器 tail 该文件并写入固定 Topic `bench-basic`
+ 3) 从 `localhost:9092` 消费该 Topic，统计 N 秒内吞吐
+ 4) 停止容器、删除日志文件，并打印/保存结果
 
 结果指标
 - `messages`：消费到的消息总数
 - `elapsed_sec`：统计窗口秒数
 - `msg_per_sec`：平均消息吞吐（条/秒）
 - `approx_mb_per_sec`：按消息平均字节估算的吞吐（MB/秒）
-- 每次执行会生成 `results/benchmark-<UTC时间>.json` 记录原始指标
+- 每次执行会生成 `results/benchmark-<UTC时间>.json` 和对应 Markdown 报告 `results/benchmark-<UTC时间>.md`
+
+统一参数
+- Kafka topic、分区与集群地址完全相同
+- `acks=1`、`request.timeout.ms=30000`、`message.timeout.ms=300000`
+- `retry.backoff.ms=100ms`、重试次数均为 10
+- 缓冲与批量行为：`queue.buffering.max.messages=100000`、`queue.buffering.max.kbytes=1048576`、`BulkMaxSize/batch.num.messages=10000`、`linger/queue.buffering.max.ms=100ms`
+- `MaxMessageBytes=10485760`、压缩统一为 `none`
+- loongcollector 全局关闭发送限速（`max_bytes_per_sec=0`），并将 `DefaultLogQueueSize` 提升到 10000
 
 常见问题
 - loongcollector 镜像不存在：请先按“先决条件”构建开发镜像。
