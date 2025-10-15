@@ -8,9 +8,23 @@ def main():
     )
     parser.add_argument("--rate", type=float, required=True, help="写入速率（MB/秒）")
     parser.add_argument("--file", type=str, required=True, help="输出文件路径")
+    parser.add_argument(
+        "--line-bytes",
+        type=int,
+        default=0,
+        help="每行字节数（含换行，0 表示使用默认样例行长度）",
+    )
     args = parser.parse_args()
 
-    line_content = '203.0.113.45 - - [25/Jun/2024:23:59:59 +0000] "GET /wp-admin/admin-ajax.php?action=revslider_ajax_action&client_action=get_facebook HTTP/1.1" 200 1847 "https://www.google.com/search?q=free+piano+sheet+music+pdf+download+site%3Aexample.com&ref=lnms&sa=X&biw=1920&bih=1080" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)" rt=0.312 uct="0.001" uht="0.125" urt="0.311" sid=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0 uagent_hash=7d8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7 request_id=req-20240625-235959-001\n'
+    base_line = '203.0.113.45 - - [25/Jun/2024:23:59:59 +0000] "GET /wp-admin/admin-ajax.php?action=revslider_ajax_action&client_action=get_facebook HTTP/1.1" 200 1847 "https://www.google.com/search?q=free+piano+sheet+music+pdf+download+site%3Aexample.com&ref=lnms&sa=X&biw=1920&bih=1080" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)" rt=0.312 uct="0.001" uht="0.125" urt="0.311" sid=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0 uagent_hash=7d8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7 request_id=req-20240625-235959-001'
+    # 调整行长度（含换行）以降低消息条数，提高每条大小
+    if args.line_bytes and args.line_bytes > 0:
+        need = max(0, args.line_bytes - 1 - len(base_line.encode("utf-8")))
+        if need > 0:
+            base_line = base_line + " X" * (need // 2)
+        line_content = base_line + "\n"
+    else:
+        line_content = base_line + "\n"
     bytes_per_line = len(line_content.encode("utf-8"))
     target_rate = args.rate
 
@@ -68,4 +82,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

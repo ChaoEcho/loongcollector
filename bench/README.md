@@ -18,7 +18,7 @@
 - `configs/loong_kafkav2.yaml`：loongcollector 使用 `flusher_kafka_v2` 的最小配置
 - `configs/fluent-bit.conf`：Fluent Bit 最小配置（Tail + Kafka 输出）
 - `bench.py`：测试编排脚本，统一启动/停止组件、产生日志、消费统计并输出结果
-- `generate_log.py`：日志生成脚本（从 `mydocs/generate_log.py` 拷贝）
+- `generate_log.py`：日志生成脚本（可配置单行大小、速率）
 
 先决条件
 
@@ -38,9 +38,12 @@
 1) 启动 Kafka：
    - `docker compose -f compose.kafka.yaml up -d`
 2) 运行单项基准（示例：原生插件）：
-   - `uv run python bench.py run --target native --duration 30 --rate-mb 50`
+   - Python 统计（便捷，吞吐较低时足够）：
+     - `uv run python bench.py run --target native --duration 30 --rate-mb 25 --consumer python`
+   - Kafka 自带 `kafka-consumer-perf-test` 统计（推荐，避免 Python 消费端瓶颈）：
+     - `uv run python bench.py run --target native --duration 30 --rate-mb 25 --consumer perf`
 3) 运行全部：
-   - `uv run python bench.py run --target all --duration 30 --rate-mb 50`
+   - `uv run python bench.py run --target all --duration 30 --rate-mb 25 --consumer perf`
 
 说明
 
@@ -64,15 +67,15 @@
 统一参数
 
 - Kafka topic、分区与集群地址完全相同
-- `acks=1`、`request.timeout.ms=30000`、`message.timeout.ms=300000`
+- `acks=0`、`request.timeout.ms=30000`、`message.timeout.ms=300000`
 - `retry.backoff.ms=100ms`、重试次数均为 10
 - 缓冲与批量行为（三者已对齐）：
-  - `queue.buffering.max.ms=20ms`（或等价的 `linger.ms=20ms`）
-  - `batch.num.messages/BulkMaxSize=10000`
+  - `queue.buffering.max.ms=100ms`（或等价的 `linger.ms=100ms`）
+  - `batch.num.messages/BulkMaxSize=50000`
   - `queue.buffering.max.messages=1000000`
   - `queue.buffering.max.kbytes=1048576`
 - `MaxMessageBytes=10485760`、压缩统一为 `none`
-- loongcollector 全局关闭发送限速（`max_bytes_per_sec=0`），并将 `DefaultLogQueueSize` 提升到 10000
+- loongcollector 全局关闭发送限速（`max_bytes_per_sec≈1GB/s`），并将 `DefaultLogQueueSize` 提升到 100000
 
 常见问题
 
@@ -80,4 +83,17 @@
 - Fluent Bit 镜像拉取失败：请确认 Docker 可访问公网或替换镜像源。
 - WSL 下文件挂载权限：脚本会自动 `chmod /data`，如仍失败可手动执行 `chmod -R 777 data`（仅本地测试）。
 - Fluent Bit 容器里缺少 `chmod` 命令：脚本会自动忽略该错误，不影响测试。
-- 25MB/s 写入但消费端仅 2–3MB/s：在“单文件 tail”场景下，吞吐常受限于分区与通道并行度。可以通过 `--partitions` 增加 Topic 分区来提升 Kafka 端并行处理能力；本基准不启用“并发 tail 多文件”。
+- 25MB/s 写入但消费端仅 2–3MB/s：请使用 `--consumer perf`，避免 Python 消费端成为瓶颈；如仍不足，可提高 Topic 分区数 `--partitions`。
+
+可选参数
+
+- `--files N`：并发写入 N 个日志文件（默认 1），用于模拟多文件 tail 并提升端到端并行度（公平性要求只约束 Kafka 客户端参数，此项按需使用）。
+- `--line-bytes M`：控制生成单行的目标长度（含换行），便于评估“条数与单条大小”对吞吐的影响（默认使用内置行样例）。
+
+单位与口径说明
+
+- 文档与报告中的“MiB/s”都是二进制 MiB（1MiB=1024×1024），与十进制 MB（1MB=1,000,000）不同；40MiB/s ≈ 41.94MB/s。为避免歧义，基准的两种速率均以 MiB/s 表示：
+  - Kafka MiB/s：消费者侧统计的消息负载字节速率（Kafka payload）。
+  - Source MiB/s：文件系统侧真实写入速率（按窗口内 input-*.log 字节差/耗时）。
+
+说明：Kafka payload 通常较 Source 略大（10%～30%），因日志会包装为 JSON 并携带元数据。

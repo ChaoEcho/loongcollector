@@ -15,13 +15,13 @@ flushers:
     Topic: bench-basic
     Version: "3.6.0"
     MaxMessageBytes: 10485760
-    BulkMaxSize: 10000
-  BulkFlushFrequency: 20000000
+    BulkMaxSize: 50000
+    BulkFlushFrequency: 100000000
     ChanBufferSize: 4096
     MaxRetries: 10
     Timeout: 30000000000
     BrokerTimeout: 10000000000
-    RequiredACKs: 1
+    RequiredACKs: 0
     Compression: none
     Backoff:
       Init: 100000000
